@@ -519,11 +519,17 @@ class MainWindow(QMainWindow):
             if len(self.packet_buffer) > self.MAX_ROWS * 2:
                 self.packet_buffer = self.packet_buffer[-self.MAX_ROWS:]
             
-            # Обновляем окно пеленгации, если оно открыто и пакет содержит информацию о направлении
-            if self.triangulation_view and packet_info.get('direction') and packet_info.get('ddos_status'):
+            # Обновляем окно пеленгации, если оно открыто
+            if self.triangulation_view:
                 # Получаем данные для отображения
                 direction = packet_info.get('direction', '')
                 rssi = packet_info.get('rssi', 0)
+                src_mac = packet_info.get('src', '')
+                ddos_status = packet_info.get('ddos_status', '')
+                
+                # Логируем для отладки
+                if direction:
+                    logger.info(f"НАПРАВЛЕНИЕ: {direction}, RSSI: {rssi}, MAC: {src_mac}, Статус: {ddos_status}")
                 
                 # Преобразуем RSSI в процент мощности сигнала (обычно RSSI от -100 до 0 дБм)
                 if rssi:
@@ -532,12 +538,14 @@ class MainWindow(QMainWindow):
                     signal_strength = 50  # По умолчанию 50%
                 
                 # Устанавливаем направление в окне пеленгации
-                self.triangulation_view.set_direction(
-                    direction,
-                    signal_strength,
-                    packet_info.get('src', ''),
-                    packet_info.get('ddos_status', '')
-                )
+                # Важно: теперь мы не проверяем ddos_status, чтобы видеть все пакеты
+                if direction:
+                    self.triangulation_view.set_direction(
+                        direction,
+                        signal_strength,
+                        src_mac,
+                        ddos_status if ddos_status else "Обычный пакет"
+                    )
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
 
