@@ -198,7 +198,7 @@ class MainWindow(QMainWindow):
             # Таймер для безопасной обработки пакетов из очереди (каждые 100 мс)
             self.packet_queue_timer = QTimer(self)
             self.packet_queue_timer.timeout.connect(self.process_packet_queue)
-            self.packet_queue_timer.start(100)
+            self.packet_queue_timer.start(500)  # Было 100, теперь 500 мс для теста
             
             logger.info("MainWindow initialized successfully")
         except Exception as e:
@@ -463,6 +463,8 @@ class MainWindow(QMainWindow):
     def add_packet_to_buffer(self, packet_data):
         """Добавляет пакет в буфер и обновляет таблицу"""
         try:
+            # Логируем входные данные для отладки
+            logger.debug(f"[DEBUG] add_packet_to_buffer received: {packet_data}")
             # Получаем статус из анализатора
             status = self.packet_analyzer.analyze_packet(packet_data)
             # Проверка на ddos_status из packet_info (от packet_capture)
@@ -476,6 +478,8 @@ class MainWindow(QMainWindow):
                         status.add(ddos_status)
                     elif isinstance(status, str):
                         status = {status, ddos_status}
+            # Логируем итоговый статус
+            logger.debug(f"[DEBUG] add_packet_to_buffer status: {status}")
             # Добавляем пакет в буфер
             packet_info = {
                 'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
@@ -492,6 +496,7 @@ class MainWindow(QMainWindow):
             
             # Ограничиваем размер буфера
             if len(self.packet_buffer) > self.BUFFER_SIZE:
+                logger.warning(f"[DEBUG] Packet buffer overflow: {len(self.packet_buffer)} > {self.BUFFER_SIZE}")
                 self.packet_buffer.pop(0)
             
             # Обновляем таблицу

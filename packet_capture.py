@@ -167,6 +167,8 @@ class PacketCapture:
                     'vendor': vendor,
                     'ddos_status': ddos_status
                 }
+                # Логируем каждый пакет для отладки
+                logger.debug(f"[DEBUG] Packet info sent to GUI: {packet_info}")
                 # Вызываем callback для пакета
                 if self.packet_callback:
                     self.packet_callback(packet_info)
