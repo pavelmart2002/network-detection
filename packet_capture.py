@@ -54,6 +54,15 @@ class PacketCapture:
             self.rssi_data = {}  # Словарь для хранения RSSI от разных интерфейсов
             self.triangulation_enabled = False  # Флаг включения пеленгации
             
+            # Необходимые атрибуты для работы
+            self.is_running = False
+            self.capture_thread = None
+            self.secondary_capture_thread = None
+            self.packet_callback = None
+            self.mac_callback = None
+            self.error_callback = None
+            self.interfaces = []
+            
             logger.info(f"Initialized with interface: {self.current_interface}")
             
         except Exception as e:

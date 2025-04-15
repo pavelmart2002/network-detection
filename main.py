@@ -371,6 +371,20 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Ошибка запуска захвата: {e}")
     
+    def stop_capture(self):
+        """Остановка захвата пакетов"""
+        try:
+            if hasattr(self, 'packet_capture') and self.packet_capture:
+                self.packet_capture.stop_capture()
+                
+            self.start_button.setEnabled(True)
+            self.stop_button.setEnabled(False)
+            self.interface_combo.setEnabled(True)
+            self.secondary_interface_combo.setEnabled(True)
+            self.statusBar().showMessage("Захват остановлен")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка остановки захвата: {e}")
+    
     def refresh_interfaces(self):
         """Обновление списка интерфейсов"""
         try:
@@ -462,6 +476,50 @@ class MainWindow(QMainWindow):
             
         except Exception as e:
             logger.error(f"Error updating packet table: {e}", exc_info=True)
+
+    def process_packet(self, packet_info):
+        """Обработка пакета от PacketCapture"""
+        try:
+            # Добавляем пакет в буфер
+            self.packet_buffer.append(packet_info)
+            
+            # Ограничиваем размер буфера
+            if len(self.packet_buffer) > self.MAX_ROWS * 2:
+                self.packet_buffer = self.packet_buffer[-self.MAX_ROWS:]
+        except Exception as e:
+            logger.error(f"Error processing packet: {e}", exc_info=True)
+
+    def process_mac_address(self, mac_info):
+        """Обработка MAC-адреса от PacketCapture"""
+        # Этот метод может быть пустым, так как мы не используем MAC-адреса отдельно
+        pass
+
+    def process_error(self, error_msg):
+        """Обработка ошибки от PacketCapture"""
+        try:
+            logger.error(f"PacketCapture error: {error_msg}")
+            self.statusBar().showMessage(f"Ошибка: {error_msg}")
+        except Exception as e:
+            logger.error(f"Error processing error message: {e}", exc_info=True)
+
+    def set_channel(self):
+        """Установка канала для интерфейса"""
+        try:
+            channel = int(self.channel_combo.currentText())
+            interface = self.interface_combo.currentText()
+            
+            if not interface:
+                QMessageBox.warning(self, "Ошибка", "Не выбран интерфейс")
+                return
+            
+            success = self.packet_capture.set_channel(channel)
+            
+            if success:
+                self.statusBar().showMessage(f"Канал {channel} установлен для интерфейса {interface}")
+            else:
+                self.statusBar().showMessage(f"Ошибка установки канала {channel}")
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка установки канала: {e}")
 
 if __name__ == "__main__":
     try:
