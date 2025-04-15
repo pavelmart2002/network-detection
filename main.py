@@ -17,6 +17,7 @@ from typing import Callable, Optional, Dict, List, Any, Tuple
 
 from packet_capture import PacketCapture
 from triangulation_view import TriangulationView
+from simple_triangulation_view import SimpleTriangulationView
 from packet_analyzer import PacketAnalyzer
 import logging
 import traceback
@@ -322,30 +323,39 @@ class MainWindow(QMainWindow):
     
     def show_triangulation_view(self):
         """Показать окно с круговой диаграммой пеленгации"""
-        if not self.triangulation_view:
-            self.triangulation_view = TriangulationView()
+        try:
+            # Используем простую версию окна пеленгации вместо сложной
+            if not self.triangulation_view:
+                self.triangulation_view = SimpleTriangulationView()
+                
+                # Устанавливаем флаг демонстрационного режима в зависимости от наличия реальных данных
+                has_direction_data = False
+                for packet in self.packet_buffer:
+                    if packet.get('direction'):
+                        has_direction_data = True
+                        # Если есть реальные данные, сразу устанавливаем их
+                        self.triangulation_view.set_direction(
+                            packet.get('direction'),
+                            signal_strength=50,
+                            mac=packet.get('src', ''),
+                            attack_type=packet.get('ddos_status', 'Обычный пакет')
+                        )
+                        break
+                
+                # Если нет реальных данных, включаем демо-режим
+                self.triangulation_view.demo_mode = not has_direction_data
+                
+            # Показываем окно
+            self.triangulation_view.show()
+            self.triangulation_view.raise_()
+            self.triangulation_view.activateWindow()
             
-            # Устанавливаем флаг демонстрационного режима в зависимости от наличия реальных данных
-            has_direction_data = False
-            for packet in self.packet_buffer:
-                if packet.get('direction'):
-                    has_direction_data = True
-                    # Если есть реальные данные, сразу устанавливаем их
-                    self.triangulation_view.set_direction(
-                        packet.get('direction'),
-                        signal_strength=50,
-                        mac=packet.get('src', ''),
-                        attack_type=packet.get('ddos_status', 'Обычный пакет')
-                    )
-                    break
+            # Логируем для отладки
+            logger.info("Окно пеленгации показано")
             
-            # Если нет реальных данных, включаем демо-режим
-            self.triangulation_view.demo_mode = not has_direction_data
-            
-        # Показываем окно
-        self.triangulation_view.show()
-        self.triangulation_view.raise_()
-        self.triangulation_view.activateWindow()
+        except Exception as e:
+            logger.error(f"Ошибка при отображении окна пеленгации: {e}", exc_info=True)
+            QMessageBox.critical(self, "Ошибка", f"Не удалось отобразить окно пеленгации: {e}")
     
     def start_capture_with_triangulation(self):
         """Запуск захвата с пеленгацией"""
@@ -557,12 +567,16 @@ class MainWindow(QMainWindow):
                 # Устанавливаем направление в окне пеленгации
                 # Важно: теперь мы не проверяем ddos_status, чтобы видеть все пакеты
                 if direction:
-                    self.triangulation_view.set_direction(
-                        direction,
-                        signal_strength,
-                        src_mac,
-                        ddos_status if ddos_status else "Обычный пакет"
-                    )
+                    try:
+                        self.triangulation_view.set_direction(
+                            direction,
+                            signal_strength,
+                            src_mac,
+                            ddos_status if ddos_status else "Обычный пакет"
+                        )
+                        logger.info(f"Направление установлено в окне пеленгации: {direction}")
+                    except Exception as e:
+                        logger.error(f"Ошибка при установке направления: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
 
