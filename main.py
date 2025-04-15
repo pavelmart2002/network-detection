@@ -187,6 +187,7 @@ class MainWindow(QMainWindow):
                 'High frequency of probe requests': QColor(255, 165, 0),     # Оранжевый
                 'High frequency of probe responses': QColor(255, 140, 0),    # Темно-оранжевый
                 'Possible deauthentication attack': QColor(255, 0, 0),       # Красный
+                'DDoS/Deauth (MDK3)': QColor(186, 85, 211),  # Фиолетовый (ярко выделяется)
             }
             
             # Создаем таймер для обновления таблиц
@@ -462,8 +463,19 @@ class MainWindow(QMainWindow):
     def add_packet_to_buffer(self, packet_data):
         """Добавляет пакет в буфер и обновляет таблицу"""
         try:
+            # Получаем статус из анализатора
             status = self.packet_analyzer.analyze_packet(packet_data)
-            
+            # Проверка на ddos_status из packet_info (от packet_capture)
+            ddos_status = packet_data.get('ddos_status', '')
+            if ddos_status:
+                if not status:
+                    status = ddos_status
+                else:
+                    # Если уже есть статус, добавляем ddos_status как дополнительный
+                    if isinstance(status, set):
+                        status.add(ddos_status)
+                    elif isinstance(status, str):
+                        status = {status, ddos_status}
             # Добавляем пакет в буфер
             packet_info = {
                 'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),

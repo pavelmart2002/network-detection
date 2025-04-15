@@ -1,4 +1,4 @@
-from scapy.all import sniff, Packet, IP, conf, Dot11, Dot11Beacon, get_if_list
+from scapy.all import sniff, Packet, IP, conf, Dot11, Dot11Beacon, Dot11Deauth, get_if_list
 from datetime import datetime
 from typing import Callable, Optional, Dict, List
 import threading
@@ -148,8 +148,13 @@ class PacketCapture:
                 subtype = str(packet.subtype) if hasattr(packet, 'subtype') else 'Unknown'
                 length = len(packet)
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
-                # Vendor определяем по MAC (OUI)
                 vendor = self._lookup_vendor(src_mac)
+
+                # DDoS/Deauth detection (MDK3)
+                if packet.haslayer(Dot11Deauth):
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                else:
+                    ddos_status = ''
 
                 packet_info = {
                     'src': src_mac,
@@ -159,7 +164,8 @@ class PacketCapture:
                     'subtype': subtype,
                     'len': length,
                     'fcs': fcs,
-                    'vendor': vendor
+                    'vendor': vendor,
+                    'ddos_status': ddos_status
                 }
                 # Вызываем callback для пакета
                 if self.packet_callback:
