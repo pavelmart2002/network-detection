@@ -38,26 +38,26 @@ def is_admin():
     return os.geteuid() == 0
 
 class PacketCapture:
-    def __init__(self, interface="wlan2"):  # Меняем на wlan2
+    """Класс для захвата и обработки сетевых пакетов"""
+    
+    def __init__(self, interface=None, channel=1):
+        """Инициализация захвата пакетов"""
         try:
-            if not is_admin():
-                raise PermissionError("This program must be run as root!")
-                
-            self.is_running = False
-            self.capture_thread = None
-            self.packet_callback = None
-            self.mac_callback = None
-            self.error_callback = None
-            self.interfaces = []
             self.current_interface = interface
-            self.current_channel = 1
+            self.secondary_interface = None  # Второй интерфейс для пеленгации
+            self.current_channel = channel
             self.channel_hop_interval = 0.5  # Добавляем интервал переключения каналов
             self.channel_lock = threading.Lock()  # Новый lock для синхронизации
             self.packet_queue = queue.Queue(maxsize=500)  # Ограничиваем размер очереди
+            
+            # Для пеленгации
+            self.rssi_data = {}  # Словарь для хранения RSSI от разных интерфейсов
+            self.triangulation_enabled = False  # Флаг включения пеленгации
+            
             logger.info(f"Initialized with interface: {self.current_interface}")
             
         except Exception as e:
-            error_msg = f"Error initializing PacketCapture: {e}"
+            error_msg = f"Error initializing packet capture: {e}"
             logger.error(error_msg, exc_info=True)
             raise
 
@@ -67,12 +67,12 @@ class PacketCapture:
             logger.info("Getting network interfaces...")
             
             # Получаем список интерфейсов через Scapy
-            self.interfaces = get_network_interfaces()
+            self.interfaces = get_if_list()
             logger.info(f"Found {len(self.interfaces)} interfaces")
             
             # Выводим подробную информацию о каждом интерфейсе
             for iface in self.interfaces:
-                logger.info(f"Interface details: {iface.name} - {iface.description}")
+                logger.info(f"Interface details: {iface}")
             
             return self.interfaces
             
@@ -173,10 +173,31 @@ class PacketCapture:
                 length = len(packet)
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
                 vendor = self._lookup_vendor(src_mac)
+                
+                # Получаем RSSI (мощность сигнала) для пеленгации
+                rssi = None
+                if hasattr(packet, 'dBm_AntSignal'):
+                    rssi = packet.dBm_AntSignal
+                elif hasattr(packet, 'signal_dbm'):
+                    rssi = packet.signal_dbm
+                
+                # Определяем, с какого интерфейса пришел пакет
+                interface = getattr(packet, 'sniffed_on', self.current_interface)
+                
+                # Сохраняем RSSI для пеленгации
+                if rssi is not None and src_mac != 'Unknown':
+                    if src_mac not in self.rssi_data:
+                        self.rssi_data[src_mac] = {}
+                    self.rssi_data[src_mac][interface] = rssi
+                
+                # Вычисляем направление на источник (если включена пеленгация и есть данные)
+                direction = None
+                if self.triangulation_enabled and src_mac in self.rssi_data:
+                    direction = self._calculate_direction(src_mac)
 
                 # МАКСИМАЛЬНО ПРОСТОЕ ОБНАРУЖЕНИЕ АТАК
                 # Логируем каждый пакет для отладки
-                logger.info(f"PACKET: type={pkt_type}, subtype={subtype}, src={src_mac}, dst={dst_mac}")
+                logger.info(f"PACKET: type={pkt_type}, subtype={subtype}, src={src_mac}, dst={dst_mac}, rssi={rssi}")
                 
                 # По умолчанию не атака
                 ddos_status = ''
@@ -240,7 +261,9 @@ class PacketCapture:
                     'len': length,
                     'fcs': fcs,
                     'vendor': vendor,
-                    'ddos_status': ddos_status
+                    'ddos_status': ddos_status,
+                    'rssi': rssi,
+                    'direction': direction
                 }
                 
                 # Вызываем callback для пакета
@@ -248,6 +271,46 @@ class PacketCapture:
                     self.packet_callback(packet_info)
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
+            
+    def _calculate_direction(self, src_mac):
+        """Вычисление направления на источник на основе RSSI от разных интерфейсов"""
+        try:
+            # Проверяем, есть ли данные от обоих интерфейсов
+            if self.current_interface in self.rssi_data[src_mac] and self.secondary_interface in self.rssi_data[src_mac]:
+                rssi1 = self.rssi_data[src_mac][self.current_interface]
+                rssi2 = self.rssi_data[src_mac][self.secondary_interface]
+                
+                # Разница в RSSI между интерфейсами
+                rssi_diff = rssi1 - rssi2
+                
+                # Простой алгоритм определения направления
+                if abs(rssi_diff) < 5:
+                    return "Прямо впереди"
+                elif rssi_diff > 0:
+                    return "Слева"
+                else:
+                    return "Справа"
+            
+            return None
+        except Exception as e:
+            logger.error(f"Error calculating direction: {e}", exc_info=True)
+            return None
+            
+    def set_secondary_interface(self, interface):
+        """Установка вторичного интерфейса для пеленгации"""
+        try:
+            self.secondary_interface = interface
+            logger.info(f"Secondary interface set to: {interface}")
+            return True
+        except Exception as e:
+            logger.error(f"Error setting secondary interface: {e}", exc_info=True)
+            return False
+    
+    def enable_triangulation(self, enabled=True):
+        """Включение/выключение пеленгации"""
+        self.triangulation_enabled = enabled
+        logger.info(f"Triangulation {'enabled' if enabled else 'disabled'}")
+        return True
 
     def process_queued_packets(self):
         """ВЫЗЫВАТЬ ТОЛЬКО ИЗ ГЛАВНОГО ПОТОКА! Передавать пакеты из очереди в callback GUI."""
@@ -295,7 +358,7 @@ class PacketCapture:
             # Проверяем, указан ли интерфейс
             if self.current_interface:
                 # Проверяем, существует ли интерфейс
-                if self.current_interface not in [iface.name for iface in interfaces]:
+                if self.current_interface not in [iface for iface in interfaces]:
                     error_msg = f"Interface {self.current_interface} not found"
                     logger.error(error_msg)
                     if error_callback:
@@ -326,7 +389,7 @@ class PacketCapture:
                 self.is_running = True
                 self.capture_thread = threading.Thread(
                     target=self._capture_packets,
-                    args=(interfaces[0].name,)
+                    args=(interfaces[0],)
                 )
                 self.capture_thread.daemon = True
                 self.capture_thread.start()
@@ -387,6 +450,42 @@ class PacketCapture:
                 return True
         except Exception as e:
             logger.error(f"Error switching channel: {e}")
+            return False
+
+    def start_capture_with_triangulation(self, packet_callback: Callable, secondary_interface: str, 
+                                        mac_callback: Optional[Callable] = None, 
+                                        error_callback: Optional[Callable] = None):
+        """Запуск захвата пакетов с пеленгацией на двух интерфейсах"""
+        try:
+            # Устанавливаем вторичный интерфейс
+            self.set_secondary_interface(secondary_interface)
+            
+            # Включаем пеленгацию
+            self.enable_triangulation(True)
+            
+            # Запускаем захват на основном интерфейсе
+            result = self.start_capture(packet_callback, mac_callback, error_callback)
+            
+            # Запускаем захват на вторичном интерфейсе
+            if result and self.secondary_interface:
+                # Создаем отдельный поток для захвата на вторичном интерфейсе
+                self.secondary_capture_thread = threading.Thread(
+                    target=self._capture_packets,
+                    args=(self.secondary_interface,)
+                )
+                self.secondary_capture_thread.daemon = True
+                self.secondary_capture_thread.start()
+                
+                logger.info(f"Triangulation capture started on {self.current_interface} and {self.secondary_interface}")
+                return True
+            
+            return result
+            
+        except Exception as e:
+            error_msg = f"Error starting triangulation capture: {e}"
+            logger.error(error_msg, exc_info=True)
+            if error_callback:
+                error_callback(error_msg)
             return False
 
 class NetworkInterface:

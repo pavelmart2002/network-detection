@@ -3,7 +3,7 @@ import signal
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QTableWidget, QTableWidgetItem,
                              QHeaderView, QSplitter, QLineEdit, QLabel, QComboBox,
-                             QDialog, QGridLayout, QMessageBox)
+                             QDialog, QGridLayout, QMessageBox, QGroupBox)
 from PySide6.QtCore import Qt, QTimer, QMetaObject, Slot, Q_ARG, QThread
 from PySide6.QtGui import QColor, QBrush
 from datetime import datetime
@@ -95,615 +95,373 @@ class FilterDialog(QDialog):
             raise
 
 class MainWindow(QMainWindow):
+    """Главное окно приложения"""
+    
+    # Константы для таблицы пакетов
+    MAX_ROWS = 100
+    MAX_UPDATE_ROWS = 20
+    
     def __init__(self):
-        """Инициализация главного окна"""
-        try:
-            super().__init__()
-            self.setWindowTitle("Network Detection")
-            self.setGeometry(100, 100, 1200, 800)
-            
-            # --- DARK THEME WITH ORANGE ACCENTS ---
-            self.setStyleSheet('''
-                QMainWindow, QWidget {
-                    background-color: #181818;
-                    color: #FFA500;
-                }
-                QTableWidget, QHeaderView::section {
-                    background-color: #222;
-                    color: #FFA500;
-                    border: 1px solid #FFA500;
-                }
-                QTableWidget::item {
-                    background-color: #181818;
-                    color: #FFA500;
-                    padding: 2px 6px;
-                }
-                QTableWidget::item:alternate {
-                    background-color: #232323;
-                }
-                QTableWidget QTableCornerButton::section {
-                    background-color: #181818;
-                    border: 1px solid #FFA500;
-                }
-                QLineEdit, QComboBox, QDialog, QPushButton {
-                    background-color: #222;
-                    color: #FFA500;
-                    border: 1px solid #FFA500;
-                }
-                QPushButton {
-                    background-color: #181818;
-                    color: #FFA500;
-                    border: 2px solid #FFA500;
-                    border-radius: 5px;
-                    padding: 4px 12px;
-                }
-                QPushButton:hover {
-                    background-color: #FFA500;
-                    color: #181818;
-                }
-                QScrollBar:vertical, QScrollBar:horizontal {
-                    background: #222;
-                    border: 1px solid #FFA500;
-                }
-                QScrollBar::handle {
-                    background: #FFA500;
-                    border-radius: 4px;
-                }
-                QHeaderView::section {
-                    background: #222;
-                    color: #FFA500;
-                    border: 1px solid #FFA500;
-                }
-                QMenuBar, QMenu, QMenu::item {
-                    background-color: #181818;
-                    color: #FFA500;
-                }
-                QMenu::item:selected {
-                    background-color: #FFA500;
-                    color: #181818;
-                }
-                QMessageBox {
-                    background-color: #181818;
-                    color: #FFA500;
-                }
-            ''')
-            # --------------------------------------
-            
-            # Инициализация UI
-            self.init_ui()
-            
-            # Инициализация данных
-            self.mac_data = {}  # Словарь для хранения информации о MAC-адресах
-            self.packet_buffer = []  # Список для хранения информации о пакетах
-            
-            # Инициализация буферов для пакетов и MAC-адресов
-            self.BUFFER_SIZE = 1000
-            self.MAX_ROWS = 200  # Максимальное количество строк в таблице
-            self.MAX_UPDATE_ROWS = 30  # Максимальное количество строк для обновления за раз
-            
-            # Цвета для разных состояний
-            self.COLORS = {
-                'normal': QColor(255, 165, 0),  # Оранжевый
-                'warning': QColor(255, 255, 0),   # Желтый
-                'danger': QColor(255, 0, 0),      # Красный
-                'High frequency of probe requests': QColor(255, 165, 0),     # Оранжевый
-                'High frequency of probe responses': QColor(255, 140, 0),    # Темно-оранжевый
-                'Possible deauthentication attack': QColor(255, 0, 0),       # Красный
-                'DDoS/Deauth (MDK3)': QColor(186, 85, 211),  # Фиолетовый (ярко выделяется)
+        super().__init__()
+        
+        # Инициализация UI
+        self.setWindowTitle("Обнаружение DDoS/Deauth атак")
+        self.setMinimumSize(1000, 600)
+        
+        # Темная тема с оранжевыми акцентами
+        self.setStyleSheet("""
+            QMainWindow, QWidget {
+                background-color: #2D2D30;
+                color: #E0E0E0;
             }
+            QPushButton {
+                background-color: #FF6E00;
+                color: white;
+                border: none;
+                padding: 5px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #FF8C00;
+            }
+            QPushButton:pressed {
+                background-color: #E65100;
+            }
+            QComboBox, QLineEdit {
+                background-color: #3E3E42;
+                color: #E0E0E0;
+                border: 1px solid #555555;
+                padding: 3px;
+                border-radius: 2px;
+            }
+            QTableWidget {
+                background-color: #252526;
+                color: #E0E0E0;
+                gridline-color: #3E3E42;
+                border: 1px solid #3E3E42;
+            }
+            QHeaderView::section {
+                background-color: #3E3E42;
+                color: #E0E0E0;
+                border: 1px solid #555555;
+                padding: 4px;
+            }
+            QTableWidget::item:selected {
+                background-color: #FF6E00;
+                color: white;
+            }
+            QLabel {
+                color: #E0E0E0;
+            }
+            QGroupBox {
+                border: 1px solid #555555;
+                border-radius: 3px;
+                margin-top: 10px;
+                font-weight: bold;
+                color: #E0E0E0;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                padding: 0 5px;
+            }
+        """)
+        
+        # Создаем центральный виджет
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # Основной layout
+        main_layout = QVBoxLayout(central_widget)
+        
+        # Верхняя панель с кнопками
+        top_panel = QHBoxLayout()
+        
+        # Группа для настройки интерфейса
+        interface_group = QGroupBox("Настройка интерфейса")
+        interface_layout = QVBoxLayout(interface_group)
+        
+        # Выбор интерфейса
+        interface_select_layout = QHBoxLayout()
+        self.interface_label = QLabel("Интерфейс:")
+        self.interface_combo = QComboBox()
+        self.refresh_button = QPushButton("Обновить")
+        interface_select_layout.addWidget(self.interface_label)
+        interface_select_layout.addWidget(self.interface_combo)
+        interface_select_layout.addWidget(self.refresh_button)
+        interface_layout.addLayout(interface_select_layout)
+        
+        # Выбор канала
+        channel_select_layout = QHBoxLayout()
+        self.channel_label = QLabel("Канал:")
+        self.channel_combo = QComboBox()
+        for i in range(1, 15):
+            self.channel_combo.addItem(str(i))
+        self.set_channel_button = QPushButton("Установить канал")
+        channel_select_layout.addWidget(self.channel_label)
+        channel_select_layout.addWidget(self.channel_combo)
+        channel_select_layout.addWidget(self.set_channel_button)
+        interface_layout.addLayout(channel_select_layout)
+        
+        # Добавляем группу интерфейса в верхнюю панель
+        top_panel.addWidget(interface_group)
+        
+        # Группа для управления захватом
+        capture_group = QGroupBox("Управление захватом")
+        capture_layout = QVBoxLayout(capture_group)
+        
+        # Кнопки управления захватом
+        capture_buttons_layout = QHBoxLayout()
+        self.start_button = QPushButton("Начать захват")
+        self.stop_button = QPushButton("Остановить")
+        self.stop_button.setEnabled(False)
+        capture_buttons_layout.addWidget(self.start_button)
+        capture_buttons_layout.addWidget(self.stop_button)
+        capture_layout.addLayout(capture_buttons_layout)
+        
+        # Добавляем группу управления захватом в верхнюю панель
+        top_panel.addWidget(capture_group)
+        
+        # Группа для пеленгации
+        triangulation_group = QGroupBox("Пеленгация источника атаки")
+        triangulation_layout = QVBoxLayout(triangulation_group)
+        
+        # Выбор вторичного интерфейса
+        secondary_interface_layout = QHBoxLayout()
+        self.secondary_interface_label = QLabel("Второй интерфейс:")
+        self.secondary_interface_combo = QComboBox()
+        secondary_interface_layout.addWidget(self.secondary_interface_label)
+        secondary_interface_layout.addWidget(self.secondary_interface_combo)
+        triangulation_layout.addLayout(secondary_interface_layout)
+        
+        # Кнопка включения пеленгации
+        triangulation_buttons_layout = QHBoxLayout()
+        self.enable_triangulation_button = QPushButton("Включить пеленгацию")
+        self.enable_triangulation_button.setCheckable(True)
+        triangulation_buttons_layout.addWidget(self.enable_triangulation_button)
+        triangulation_layout.addLayout(triangulation_buttons_layout)
+        
+        # Добавляем группу пеленгации в верхнюю панель
+        top_panel.addWidget(triangulation_group)
+        
+        # Добавляем верхнюю панель в основной layout
+        main_layout.addLayout(top_panel)
+        
+        # Таблица пакетов
+        self.packet_table = QTableWidget()
+        self.packet_table.setColumnCount(10)  # Добавили колонку для RSSI и направления
+        self.packet_table.setHorizontalHeaderLabels(["Источник", "Назначение", "Протокол", "Тип", "Подтип", "Длина", "FCS", "Производитель", "Статус", "Направление"])
+        self.packet_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.packet_table.verticalHeader().setVisible(False)
+        self.packet_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.packet_table.setSelectionBehavior(QTableWidget.SelectRows)
+        main_layout.addWidget(self.packet_table)
+        
+        # Статусная строка
+        self.statusBar().showMessage("Готов к работе")
+        
+        # Инициализация захвата пакетов
+        self.packet_capture = PacketCapture()
+        self.packet_buffer = []
+        
+        # Таймер для обновления таблицы
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.update_packet_table)
+        self.update_timer.start(500)  # Обновление каждые 500 мс
+        
+        # Подключение сигналов
+        self.refresh_button.clicked.connect(self.refresh_interfaces)
+        self.start_button.clicked.connect(self.start_capture)
+        self.stop_button.clicked.connect(self.stop_capture)
+        self.set_channel_button.clicked.connect(self.set_channel)
+        self.enable_triangulation_button.clicked.connect(self.toggle_triangulation)
+        
+        # Инициализация интерфейсов
+        self.refresh_interfaces()
+    
+    def toggle_triangulation(self):
+        """Включение/выключение пеленгации"""
+        if self.enable_triangulation_button.isChecked():
+            self.enable_triangulation_button.setText("Выключить пеленгацию")
+            self.statusBar().showMessage("Пеленгация включена")
             
-            # Создаем таймер для обновления таблиц
-            self.update_timer = QTimer(self)
-            self.update_timer.timeout.connect(self.update_tables)
-            self.update_timer.start(1000)  # Обновление каждую секунду
-            
-            # Таймер для безопасной обработки пакетов из очереди (каждые 100 мс)
-            self.packet_queue_timer = QTimer(self)
-            self.packet_queue_timer.timeout.connect(self.process_packet_queue)
-            self.packet_queue_timer.start(500)  # Было 100, теперь 500 мс для теста
-            
-            logger.info("MainWindow initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing MainWindow: {e}", exc_info=True)
-            
-    def init_ui(self):
-        """Инициализация UI"""
-        try:
-            # Инициализация захвата пакетов
-            self.packet_capture = None
-            self.packet_analyzer = PacketAnalyzer()
-            self.init_packet_capture()
-            
-            # Буфер для пакетов
-            self.MAX_ROWS = 1000
-            
-            # Таймер для проверки состояния
-            self.check_timer = QTimer()
-            self.check_timer.moveToThread(self.thread())
-            self.check_timer.timeout.connect(self.check_capture_status)
-            
-            # Таймер для автоперезапуска
-            self.restart_timer = QTimer()
-            self.restart_timer.moveToThread(self.thread())
-            self.restart_timer.timeout.connect(self.restart_capture_if_needed)
-            
-            # Создаем центральный виджет и layout
-            central_widget = QWidget()
-            self.setCentralWidget(central_widget)
-            main_layout = QVBoxLayout(central_widget)
-
-            # Создаем верхнюю панель с кнопками и фильтром
-            button_layout = QHBoxLayout()
-            self.start_button = QPushButton("Старт")
-            self.stop_button = QPushButton("Стоп")
-            self.settings_button = QPushButton("Настройки")
-            self.filter_button = QPushButton("Фильтры")
-            
-            button_layout.addWidget(self.start_button)
-            button_layout.addWidget(self.stop_button)
-            button_layout.addWidget(self.filter_button)
-            button_layout.addWidget(self.settings_button)
-            button_layout.addStretch()
-            
-            main_layout.addLayout(button_layout)
-
-            # Создаем поле поиска
-            search_layout = QHBoxLayout()
-            self.search_input = QLineEdit()
-            self.search_input.setPlaceholderText("Поиск...")
-            self.search_input.textChanged.connect(self.apply_search)
-            search_layout.addWidget(QLabel("Поиск:"))
-            search_layout.addWidget(self.search_input)
-            main_layout.addLayout(search_layout)
-
-            # Создаем разделитель для таблиц
-            splitter = QSplitter(Qt.Vertical)
-
-            # Верхняя таблица для пакетов
-            self.packets_table = QTableWidget()
-            self.packets_table.setColumnCount(8)
-            self.packets_table.setHorizontalHeaderLabels([
-                "Time", "Destination", "Protocol", "Length",
-                "Type", "Source", "FCS", "Status"
-            ])
-            header = self.packets_table.horizontalHeader()
-            header.setSectionResizeMode(QHeaderView.ResizeToContents)
-            
-            # Нижняя таблица для MAC-адресов
-            self.mac_table = QTableWidget()
-            self.mac_table.setColumnCount(5)
-            self.mac_table.setHorizontalHeaderLabels([
-                "MAC Address", "Packets", "Last Seen", "Type", "Vendor"
-            ])
-            header = self.mac_table.horizontalHeader()
-            header.setSectionResizeMode(QHeaderView.ResizeToContents)
-
-            splitter.addWidget(self.packets_table)
-            splitter.addWidget(self.mac_table)
-            
-            # Устанавливаем соотношение размеров таблиц
-            splitter.setStretchFactor(0, 2)
-            splitter.setStretchFactor(1, 1)
-            
-            main_layout.addWidget(splitter)
-
-            # Подключаем обработчики событий
-            self.start_button.clicked.connect(self.start_capture)
-            self.stop_button.clicked.connect(self.stop_capture)
-            self.settings_button.clicked.connect(self.show_settings)
-            self.filter_button.clicked.connect(self.show_filter_dialog)
-
-            # Начальное состояние кнопок
-            self.stop_button.setEnabled(False)
-
-            # --- Компактные строки таблицы и чередование цветов ---
-            self.packets_table.setAlternatingRowColors(True)
-            self.packets_table.verticalHeader().setDefaultSectionSize(22)
-            self.packets_table.setStyleSheet("QTableWidget::item { padding: 2px 6px; }")
-            self.mac_table.setAlternatingRowColors(True)
-            self.mac_table.verticalHeader().setDefaultSectionSize(22)
-            self.mac_table.setStyleSheet("QTableWidget::item { padding: 2px 6px; }")
-
-            logger.info("UI initialized successfully")
-        except Exception as e:
-            logger.error(f"Error initializing UI: {e}", exc_info=True)
-            raise
-
-    def init_packet_capture(self):
-        """Инициализация захвата пакетов"""
-        try:
-            if self.packet_capture:
-                self.packet_capture.stop_capture()
-            self.packet_capture = PacketCapture()
-            logger.info("PacketCapture initialized")
-        except Exception as e:
-            logger.error(f"Error initializing PacketCapture: {e}", exc_info=True)
-            QMessageBox.critical(self, "Error", f"Failed to initialize packet capture: {str(e)}")
-
-    def check_capture_status(self):
-        """Проверка состояния захвата пакетов"""
-        try:
-            if not hasattr(self, 'packet_capture') or not self.packet_capture:
-                return
-                
-            if not self.packet_capture.is_running and self.stop_button.isEnabled():
-                logger.warning("Packet capture stopped unexpectedly")
+            # Если захват уже запущен, перезапускаем с пеленгацией
+            if self.packet_capture.is_running:
                 self.stop_capture()
-                QMessageBox.warning(self, "Warning", 
-                    "Захват пакетов был неожиданно остановлен. Попробуйте запустить снова.")
-        except Exception as e:
-            logger.error(f"Error checking capture status: {e}", exc_info=True)
-
-    def restart_capture_if_needed(self):
-        """Автоматический перезапуск захвата при необходимости"""
-        try:
-            if not hasattr(self, 'packet_capture') or not self.packet_capture:
-                return
-                
-            if (not self.packet_capture.is_running and 
-                self.stop_button.isEnabled()):
-                logger.info("Attempting to restart packet capture...")
+                self.start_capture_with_triangulation()
+        else:
+            self.enable_triangulation_button.setText("Включить пеленгацию")
+            self.statusBar().showMessage("Пеленгация выключена")
+            
+            # Если захват запущен, перезапускаем без пеленгации
+            if self.packet_capture.is_running:
                 self.stop_capture()
-                # Небольшая задержка перед перезапуском
-                QTimer.singleShot(1000, self.start_capture)
-        except Exception as e:
-            logger.error(f"Error restarting capture: {e}", exc_info=True)
-
-    def update_tables(self):
-        """Обновление таблиц с данными"""
+                self.start_capture()
+    
+    def start_capture_with_triangulation(self):
+        """Запуск захвата с пеленгацией"""
         try:
-            current_time = time.time()
-            rows_to_remove = []
+            # Получаем выбранные интерфейсы
+            primary_interface = self.interface_combo.currentText()
+            secondary_interface = self.secondary_interface_combo.currentText()
             
-            # Обновляем таблицу MAC-адресов
-            for row in range(self.mac_table.rowCount()):
-                mac = self.mac_table.item(row, 0).text()
-                last_seen_str = self.mac_table.item(row, 2).text()
-                try:
-                    # Пробуем преобразовать как float (старый формат)
-                    last_seen = float(last_seen_str)
-                except ValueError:
-                    # Если не получилось — пробуем как строку времени
-                    from datetime import datetime
-                    last_seen = datetime.strptime(last_seen_str, '%Y-%m-%d %H:%M:%S').timestamp()
-                if current_time - last_seen > 60:  # Удаляем записи старше 60 секунд
-                    rows_to_remove.append(row)
-                    
-            # Удаляем устаревшие записи
-            for row in reversed(rows_to_remove):
-                self.mac_table.removeRow(row)
-                
-            # Обновляем цвета строк на основе статуса
-            for row in range(self.mac_table.rowCount()):
-                mac = self.mac_table.item(row, 0).text()
-                if mac in self.mac_data:
-                    status = self.mac_data[mac].get('status', 'normal')
-                    if isinstance(status, dict) and 'suspicious_activity' in status:
-                        # Если есть подозрительная активность, используем первую как статус
-                        activities = status['suspicious_activity']
-                        if activities:
-                            status = activities[0]  # Берем первую активность как основную
-                        else:
-                            status = 'normal'
-                    color = self.COLORS.get(status, self.COLORS['normal'])
-                    
-                    for col in range(self.mac_table.columnCount()):
-                        item = self.mac_table.item(row, col)
-                        if item:
-                            item.setBackground(color)
+            if primary_interface == secondary_interface:
+                QMessageBox.warning(self, "Ошибка", "Основной и вторичный интерфейсы должны отличаться")
+                self.enable_triangulation_button.setChecked(False)
+                self.enable_triangulation_button.setText("Включить пеленгацию")
+                return
             
-        except Exception as e:
-            logger.error(f"Error updating tables: {e}", exc_info=True)
-
-    def add_packet_to_table(self, packet_data):
-        """Добавление пакета в буфер"""
-        try:
-            self.packet_buffer.append(packet_data)
-            if len(self.packet_buffer) > self.BUFFER_SIZE:
-                self.packet_buffer.pop(0)  # Удаляем старые пакеты если буфер переполнен
-        except Exception as e:
-            logger.error(f"Error adding packet to buffer: {e}", exc_info=True)
-
-    def add_mac_to_table(self, mac_address):
-        """Добавление MAC-адреса в таблицу"""
-        try:
-            if mac_address not in self.mac_data:
-                self.mac_data[mac_address] = {
-                    'packets': 0,
-                    'last_seen': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                    'type': 'Unknown',
-                    'vendor': 'Unknown'
-                }
+            # Создаем новый экземпляр PacketCapture
+            self.packet_capture = PacketCapture(primary_interface)
             
-            # Обновляем информацию
-            self.mac_data[mac_address]['packets'] += 1
-            self.mac_data[mac_address]['last_seen'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Обновляем таблицу
-            self.update_mac_table()
-            
-        except Exception as e:
-            logger.error(f"Error adding MAC to table: {e}", exc_info=True)
-
-    def update_mac_table(self):
-        """Обновление таблицы MAC-адресов"""
-        try:
-            self.mac_table.setRowCount(len(self.mac_data))
-            for row, (mac, data) in enumerate(self.mac_data.items()):
-                self.mac_table.setItem(row, 0, QTableWidgetItem(mac))
-                self.mac_table.setItem(row, 1, QTableWidgetItem(str(data['packets'])))
-                self.mac_table.setItem(row, 2, QTableWidgetItem(data['last_seen']))
-                self.mac_table.setItem(row, 3, QTableWidgetItem(data['type']))
-                self.mac_table.setItem(row, 4, QTableWidgetItem(data['vendor']))
-        except Exception as e:
-            logger.error(f"Error updating MAC table: {e}", exc_info=True)
-
-    def start_capture(self):
-        """Начало захвата пакетов"""
-        try:
-            if not self.packet_capture:
-                self.init_packet_capture()
-            
-            # Запускаем таймеры в главном потоке
-            self.check_timer.start(1000)
-            self.restart_timer.start(5000)
-            
-            self.packet_capture.start_capture(
-                self.add_packet_to_buffer,
-                self.add_mac_to_table,
-                self.handle_capture_error
+            # Запускаем захват с пеленгацией
+            success = self.packet_capture.start_capture_with_triangulation(
+                self.process_packet,
+                secondary_interface,
+                self.process_mac_address,
+                self.process_error
             )
             
-            self.start_button.setEnabled(False)
-            self.stop_button.setEnabled(True)
-            logger.info("Packet capture started")
-            
+            if success:
+                self.start_button.setEnabled(False)
+                self.stop_button.setEnabled(True)
+                self.interface_combo.setEnabled(False)
+                self.secondary_interface_combo.setEnabled(False)
+                self.statusBar().showMessage(f"Захват запущен с пеленгацией на интерфейсах {primary_interface} и {secondary_interface}")
+            else:
+                self.statusBar().showMessage("Ошибка запуска захвата с пеленгацией")
+                self.enable_triangulation_button.setChecked(False)
+                self.enable_triangulation_button.setText("Включить пеленгацию")
+        
         except Exception as e:
-            logger.error(f"Error starting capture: {e}", exc_info=True)
-            self._show_error_dialog(f"Failed to start capture: {str(e)}")
-            
-    def add_packet_to_buffer(self, packet_data):
-        """Добавляет пакет в буфер и обновляет таблицу"""
+            QMessageBox.critical(self, "Ошибка", f"Ошибка запуска захвата с пеленгацией: {e}")
+            self.enable_triangulation_button.setChecked(False)
+            self.enable_triangulation_button.setText("Включить пеленгацию")
+    
+    def start_capture(self):
+        """Запуск захвата пакетов"""
         try:
-            # Логируем входные данные для отладки
-            logger.debug(f"[DEBUG] add_packet_to_buffer received: {packet_data}")
-            # Получаем статус из анализатора
-            status = self.packet_analyzer.analyze_packet(packet_data)
-            # Проверка на ddos_status из packet_info (от packet_capture)
-            ddos_status = packet_data.get('ddos_status', '')
-            if ddos_status:
-                if not status:
-                    status = ddos_status
-                else:
-                    # Если уже есть статус, добавляем ddos_status как дополнительный
-                    if isinstance(status, set):
-                        status.add(ddos_status)
-                    elif isinstance(status, str):
-                        status = {status, ddos_status}
-            # Логируем итоговый статус
-            logger.debug(f"[DEBUG] add_packet_to_buffer status: {status}")
-            # Добавляем пакет в буфер
-            packet_info = {
-                'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'destination': packet_data.get('dst', 'Unknown'),
-                'protocol': packet_data.get('protocol', 'Unknown'),
-                'length': str(packet_data.get('len', 0)),
-                'type': packet_data.get('type', 'Unknown'),
-                'source': packet_data.get('src', 'Unknown'),
-                'fcs': packet_data.get('fcs', 'Unknown'),
-                'status': status
-            }
+            # Если включена пеленгация, используем другой метод
+            if self.enable_triangulation_button.isChecked():
+                self.start_capture_with_triangulation()
+                return
             
-            self.packet_buffer.append(packet_info)
+            # Получаем выбранный интерфейс
+            interface = self.interface_combo.currentText()
             
-            # Ограничиваем размер буфера
-            if len(self.packet_buffer) > self.BUFFER_SIZE:
-                logger.warning(f"[DEBUG] Packet buffer overflow: {len(self.packet_buffer)} > {self.BUFFER_SIZE}")
-                self.packet_buffer.pop(0)
+            # Создаем новый экземпляр PacketCapture
+            self.packet_capture = PacketCapture(interface)
             
-            # Обновляем таблицу
-            self.update_packet_table()
+            # Запускаем захват
+            success = self.packet_capture.start_capture(
+                self.process_packet,
+                self.process_mac_address,
+                self.process_error
+            )
             
+            if success:
+                self.start_button.setEnabled(False)
+                self.stop_button.setEnabled(True)
+                self.interface_combo.setEnabled(False)
+                self.secondary_interface_combo.setEnabled(False)
+                self.statusBar().showMessage(f"Захват запущен на интерфейсе {interface}")
+            else:
+                self.statusBar().showMessage("Ошибка запуска захвата")
+        
         except Exception as e:
-            logger.error(f"Error adding packet to buffer: {e}", exc_info=True)
-
+            QMessageBox.critical(self, "Ошибка", f"Ошибка запуска захвата: {e}")
+    
+    def refresh_interfaces(self):
+        """Обновление списка интерфейсов"""
+        try:
+            # Очищаем комбобоксы
+            self.interface_combo.clear()
+            self.secondary_interface_combo.clear()
+            
+            # Получаем список интерфейсов
+            interfaces = self.packet_capture.get_interfaces()
+            
+            # Заполняем комбобоксы
+            for iface in interfaces:
+                self.interface_combo.addItem(iface)
+                self.secondary_interface_combo.addItem(iface)
+            
+            # Выбираем разные интерфейсы по умолчанию, если доступно
+            if self.interface_combo.count() > 1:
+                self.interface_combo.setCurrentIndex(0)
+                self.secondary_interface_combo.setCurrentIndex(1)
+            
+            self.statusBar().showMessage(f"Найдено {len(interfaces)} интерфейсов")
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Ошибка обновления интерфейсов: {e}")
+    
     def update_packet_table(self):
-        """Обновляет таблицу пакетов на основе данных из буфера"""
+        """Обновление таблицы пакетов"""
         try:
-            # Полностью перестраиваем таблицу каждый раз, но ограничиваем количество строк
-            # Это менее эффективно, но более стабильно
-            self.packets_table.setRowCount(0)  # Очищаем таблицу
+            # Обрабатываем пакеты из очереди
+            self.packet_capture.process_queued_packets()
             
-            # Берем только последние MAX_ROWS пакетов, но не более MAX_UPDATE_ROWS
+            # Если нет пакетов, выходим
+            if not self.packet_buffer:
+                return
+            
+            # Ограничиваем количество отображаемых строк
             display_packets = self.packet_buffer[-self.MAX_ROWS:]
+            
+            # Ограничиваем количество обновляемых строк за раз
             if len(display_packets) > self.MAX_UPDATE_ROWS:
                 display_packets = display_packets[-self.MAX_UPDATE_ROWS:]
             
-            logger.debug(f"[DEBUG] Rebuilding packet table with {len(display_packets)} rows (buffer size: {len(self.packet_buffer)})")
+            # Устанавливаем количество строк
+            current_row_count = self.packet_table.rowCount()
+            new_row_count = min(len(self.packet_buffer), self.MAX_ROWS)
             
-            # Добавляем пакеты
-            for packet_info in display_packets:
-                row = self.packets_table.rowCount()
-                self.packets_table.insertRow(row)
-                
-                # Заполняем ячейки
-                timestamp_item = QTableWidgetItem(packet_info['time'])
-                destination_item = QTableWidgetItem(packet_info['destination'])
-                protocol_item = QTableWidgetItem(packet_info['protocol'])
-                length_item = QTableWidgetItem(packet_info['length'])
-                type_item = QTableWidgetItem(packet_info['type'])
-                source_item = QTableWidgetItem(packet_info['source'])
-                fcs_item = QTableWidgetItem(packet_info['fcs'])
-                
-                # Convert status from set to string
-                status = packet_info['status']
-                if isinstance(status, set):
-                    status = ', '.join(status) if status else 'normal'
-                elif not status:
-                    status = 'normal'
-                status_item = QTableWidgetItem(str(status))
-                
-                # Устанавливаем цвет фона и явно задаём цвет текста для тёмной темы
-                if status in self.COLORS:
-                    color = self.COLORS[status]
-                    for item in [timestamp_item, destination_item, protocol_item, 
-                               length_item, type_item, source_item, fcs_item, status_item]:
-                        item.setBackground(color)
-                        item.setForeground(QBrush(QColor('#FFA500')))
-                else:
-                    for item in [timestamp_item, destination_item, protocol_item, 
-                               length_item, type_item, source_item, fcs_item, status_item]:
-                        item.setForeground(QBrush(QColor('#FFA500')))
-                
-                # Добавляем элементы в таблицу
-                self.packets_table.setItem(row, 0, timestamp_item)
-                self.packets_table.setItem(row, 1, destination_item)
-                self.packets_table.setItem(row, 2, protocol_item)
-                self.packets_table.setItem(row, 3, length_item)
-                self.packets_table.setItem(row, 4, type_item)
-                self.packets_table.setItem(row, 5, source_item)
-                self.packets_table.setItem(row, 6, fcs_item)
-                self.packets_table.setItem(row, 7, status_item)
+            if new_row_count > current_row_count:
+                self.packet_table.setRowCount(new_row_count)
             
-            # Прокручиваем таблицу к последней строке
-            if display_packets:
-                self.packets_table.scrollToBottom()
+            # Обновляем таблицу
+            for i, packet in enumerate(display_packets):
+                row = current_row_count - len(display_packets) + i
+                
+                if row >= 0 and row < self.MAX_ROWS:
+                    # Заполняем ячейки таблицы
+                    self.packet_table.setItem(row, 0, QTableWidgetItem(packet.get('src', '')))
+                    self.packet_table.setItem(row, 1, QTableWidgetItem(packet.get('dst', '')))
+                    self.packet_table.setItem(row, 2, QTableWidgetItem(packet.get('protocol', '')))
+                    self.packet_table.setItem(row, 3, QTableWidgetItem(packet.get('type', '')))
+                    self.packet_table.setItem(row, 4, QTableWidgetItem(packet.get('subtype', '')))
+                    self.packet_table.setItem(row, 5, QTableWidgetItem(str(packet.get('len', ''))))
+                    self.packet_table.setItem(row, 6, QTableWidgetItem(packet.get('fcs', '')))
+                    self.packet_table.setItem(row, 7, QTableWidgetItem(packet.get('vendor', '')))
+                    
+                    # Статус DDoS/Deauth
+                    ddos_status = packet.get('ddos_status', '')
+                    status_item = QTableWidgetItem(ddos_status)
+                    
+                    # Выделяем красным, если это атака
+                    if ddos_status:
+                        status_item.setBackground(QColor(255, 0, 0, 100))
+                        status_item.setForeground(QColor(255, 255, 255))
+                    
+                    self.packet_table.setItem(row, 8, status_item)
+                    
+                    # Направление на источник (для пеленгации)
+                    direction = packet.get('direction', '')
+                    direction_item = QTableWidgetItem(direction)
+                    
+                    # Выделяем зеленым, если есть информация о направлении
+                    if direction:
+                        direction_item.setBackground(QColor(0, 255, 0, 100))
+                        direction_item.setForeground(QColor(0, 0, 0))
+                    
+                    self.packet_table.setItem(row, 9, direction_item)
+            
+            # Прокручиваем к последней строке
+            self.packet_table.scrollToBottom()
             
         except Exception as e:
             logger.error(f"Error updating packet table: {e}", exc_info=True)
-
-    def handle_capture_error(self, error_msg: str):
-        """Обработка ошибок захвата пакетов"""
-        try:
-            logger.error(f"Capture error: {error_msg}")
-            # Используем invokeMethod для безопасного вызова из другого потока
-            QMetaObject.invokeMethod(self, "_show_error_dialog",
-                                   Qt.ConnectionType.QueuedConnection,
-                                   Q_ARG(str, error_msg))
-        except Exception as e:
-            logger.error(f"Error handling capture error: {e}", exc_info=True)
-            
-    @Slot(str)
-    def _show_error_dialog(self, error_msg: str):
-        """Показать диалог с ошибкой"""
-        try:
-            self.statusBar().showMessage(f"Ошибка: {error_msg}")
-            QMessageBox.critical(self, "Ошибка", str(error_msg))
-            
-            # Сбрасываем состояние кнопок
-            self.start_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            
-        except Exception as e:
-            logger.error(f"Error showing error dialog: {e}", exc_info=True)
-
-    def stop_capture(self):
-        """Остановка захвата пакетов"""
-        try:
-            if self.packet_capture:
-                self.packet_capture.stop_capture()
-            
-            # Останавливаем таймеры
-            self.check_timer.stop()
-            self.restart_timer.stop()
-            
-            self.start_button.setEnabled(True)
-            self.stop_button.setEnabled(False)
-            logger.info("Packet capture stopped")
-            
-        except Exception as e:
-            logger.error(f"Error stopping capture: {e}", exc_info=True)
-            self._show_error_dialog(f"Failed to stop capture: {str(e)}")
-
-    def show_settings(self):
-        # TODO: Добавить диалог настроек
-        pass
-
-    def show_filter_dialog(self):
-        """Показать диалог фильтров"""
-        try:
-            dialog = FilterDialog(self)
-            if dialog.exec():
-                new_filter = dialog.get_filter()
-                if self.packet_capture:
-                    self.packet_capture.set_filters([new_filter])
-                    logger.info(f"Applied new filter: {new_filter}")
-        except Exception as e:
-            logger.error(f"Error showing filter dialog: {e}", exc_info=True)
-
-    def apply_search(self, search_text):
-        """Применение поиска к таблицам"""
-        try:
-            search_text = search_text.lower()
-            
-            # Поиск в таблице пакетов
-            for row in range(self.packets_table.rowCount()):
-                row_visible = False
-                for col in range(self.packets_table.columnCount()):
-                    item = self.packets_table.item(row, col)
-                    if item and search_text in item.text().lower():
-                        row_visible = True
-                        break
-                self.packets_table.setRowHidden(row, not row_visible)
-            
-            # Поиск в таблице MAC-адресов
-            for row in range(self.mac_table.rowCount()):
-                row_visible = False
-                for col in range(self.mac_table.columnCount()):
-                    item = self.mac_table.item(row, col)
-                    if item and search_text in item.text().lower():
-                        row_visible = True
-                        break
-                self.mac_table.setRowHidden(row, not row_visible)
-        except Exception as e:
-            logger.error(f"Error applying search: {e}", exc_info=True)
-
-    def process_packet_queue(self):
-        """Забирает пакеты из очереди PacketCapture и безопасно обновляет GUI."""
-        try:
-            if self.packet_capture:
-                self.packet_capture.process_queued_packets()
-        except Exception as e:
-            logger.error(f"Error processing packet queue: {e}", exc_info=True)
-
-    def closeEvent(self, event):
-        """Обработка закрытия окна"""
-        try:
-            logger.info("Application closing...")
-            # Останавливаем таймеры
-            if hasattr(self, 'check_timer'):
-                self.check_timer.stop()
-            if hasattr(self, 'restart_timer'):
-                self.restart_timer.stop()
-            if hasattr(self, 'update_timer'):
-                self.update_timer.stop()
-            if hasattr(self, 'packet_queue_timer'):
-                self.packet_queue_timer.stop()
-            
-            # Очищаем буферы
-            if hasattr(self, 'packet_buffer'):
-                self.packet_buffer.clear()
-            if hasattr(self, 'mac_buffer'):
-                self.mac_buffer.clear()
-            
-            # Останавливаем захват пакетов
-            if hasattr(self, 'packet_capture') and self.packet_capture:
-                logger.info("Stopping packet capture...")
-                try:
-                    self.packet_capture.stop_capture()
-                    # Ждем завершения потока захвата
-                    if self.packet_capture.capture_thread:
-                        self.packet_capture.capture_thread.join(timeout=2.0)
-                        if self.packet_capture.capture_thread.is_alive():
-                            logger.warning("Capture thread did not stop gracefully")
-                except Exception as e:
-                    logger.error(f"Error stopping packet capture: {e}", exc_info=True)
-            
-            logger.info("Application closed successfully")
-            event.accept()
-        except Exception as e:
-            logger.error(f"Error during application shutdown: {e}", exc_info=True)
-            event.accept()
 
 if __name__ == "__main__":
     try:
