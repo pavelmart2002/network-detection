@@ -191,10 +191,19 @@ class PacketCapture:
                         packet_dict[field.name] = getattr(packet, field.name)
                     logger.info(f"[PACKET ALL FIELDS] {packet_dict}")
 
+                # ПРЯМОЕ ОБНАРУЖЕНИЕ АТАК ПО СКРИНШОТУ
+                # Если destination = ff:ff:ff:ff:ff:ff и тип = 0, это 100% атака
+                ddos_status = ''
+                if dst_mac.lower() == 'ff:ff:ff:ff:ff:ff' and pkt_type == '0':
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"[DETECTED] DDoS/Deauth attack with broadcast destination from {src_mac}")
+                
+                # Если источник повторяется в последовательных пакетах - это атака
                 # Инициализация счетчиков для источников
                 if not hasattr(self, 'source_counters'):
                     self.source_counters = {}
                     self.last_check_time = time.time()
+                    self.known_attack_sources = set()
                 
                 # Подсчет пакетов от каждого источника
                 if src_mac != 'Unknown':
@@ -202,39 +211,22 @@ class PacketCapture:
                         self.source_counters[src_mac] = 1
                     else:
                         self.source_counters[src_mac] += 1
+                        # Если от одного источника пришло больше 3 пакетов - это атака
+                        if self.source_counters[src_mac] > 3:
+                            ddos_status = 'DDoS/Deauth (MDK3)'
+                            self.known_attack_sources.add(src_mac)
+                            logger.info(f"[DETECTED] DDoS/Deauth attack by frequency from {src_mac} (count: {self.source_counters[src_mac]})")
                 
-                # Проверка на атаку по частоте пакетов от одного источника (каждые 2 секунды)
+                # Если источник уже известен как атакующий - помечаем все его пакеты
+                if src_mac in getattr(self, 'known_attack_sources', set()):
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                
+                # Каждые 10 секунд сбрасываем счетчики (но не список известных атакующих)
                 current_time = time.time()
-                if current_time - getattr(self, 'last_check_time', 0) > 2.0:
-                    # Находим источники с большим количеством пакетов
-                    attack_sources = []
-                    for mac, count in self.source_counters.items():
-                        if count > 5:  # Если больше 5 пакетов за 2 секунды
-                            attack_sources.append((mac, count))
-                            logger.info(f"[ATTACK SOURCE] {mac} sent {count} packets in 2 seconds")
-                    
-                    # Сбрасываем счетчики
+                if current_time - getattr(self, 'last_check_time', 0) > 10.0:
                     self.source_counters = {}
                     self.last_check_time = current_time
-                    
-                    # Если есть источники атаки, помечаем этот пакет
-                    if attack_sources and src_mac in [s[0] for s in attack_sources]:
-                        logger.info(f"[DETECTED] DDoS/Deauth attack from {src_mac} (high frequency)")
-                        ddos_status = 'DDoS/Deauth (MDK3)'
-                    else:
-                        ddos_status = ''
-                else:
-                    # Проверяем, есть ли уже известные источники атак
-                    if hasattr(self, 'known_attack_sources') and src_mac in self.known_attack_sources:
-                        ddos_status = 'DDoS/Deauth (MDK3)'
-                    else:
-                        ddos_status = ''
-                
-                # Обновляем список известных источников атак
-                if ddos_status:
-                    if not hasattr(self, 'known_attack_sources'):
-                        self.known_attack_sources = set()
-                    self.known_attack_sources.add(src_mac)
+                    logger.info(f"[INFO] Reset source counters. Known attack sources: {self.known_attack_sources}")
 
                 packet_info = {
                     'src': src_mac,
