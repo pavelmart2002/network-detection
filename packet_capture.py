@@ -171,12 +171,25 @@ class PacketCapture:
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
                 vendor = self._lookup_vendor(src_mac)
 
-                # DDoS/Deauth detection (MDK3) - расширенное обнаружение
+                # Дамп всего пакета для отладки (только для первых 10 пакетов)
+                if hasattr(self, 'debug_packet_count'):
+                    self.debug_packet_count += 1
+                else:
+                    self.debug_packet_count = 1
+                
+                if self.debug_packet_count <= 10 and (pkt_type == '0' and subtype in ['10', '11', '12']):
+                    logger.info(f"[PACKET DUMP] {packet.summary()}")
+                    logger.info(f"[PACKET FIELDS] {packet.fields}")
+                    if hasattr(packet, 'FCfield'):
+                        logger.info(f"[PACKET FCfield] {packet.FCfield}")
+
+                # DDoS/Deauth detection (MDK3) - еще более расширенное обнаружение
                 ddos_status = ''
                 
                 # Проверка 1: по типу и подтипу (deauth = тип 0, подтип 12)
                 if hasattr(packet, 'type') and hasattr(packet, 'subtype'):
-                    if packet.type == 0 and packet.subtype == 12:  # Management frame, Deauthentication
+                    # Расширенная проверка для типа 0 (Management) и подтипов 10 (Disassociation), 11 (Authentication), 12 (Deauthentication)
+                    if packet.type == 0 and packet.subtype in [10, 11, 12]:
                         ddos_status = 'DDoS/Deauth (MDK3)'
                         logger.info(f"[DETECTED] DDoS/Deauth packet by type/subtype from {src_mac} to {dst_mac}")
                 
@@ -197,6 +210,30 @@ class PacketCapture:
                     if fc_field == 0 and packet.type == 0 and packet.subtype in [10, 11, 12]:
                         ddos_status = 'DDoS/Deauth (MDK3)'
                         logger.info(f"[DETECTED] DDoS/Deauth packet by FCfield from {src_mac} to {dst_mac}")
+                
+                # Проверка 5: MDK3 часто использует широковещательные адреса
+                if (src_mac == 'ff:ff:ff:ff:ff:ff' or dst_mac == 'ff:ff:ff:ff:ff:ff') and packet.type == 0:
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"[DETECTED] DDoS/Deauth packet by broadcast address from {src_mac} to {dst_mac}")
+
+                # Проверка 6: Высокая частота пакетов от одного источника
+                if pkt_type == '0' and subtype in ['10', '11', '12']:
+                    # Используем временный счетчик для отслеживания частоты
+                    if not hasattr(self, 'deauth_counter'):
+                        self.deauth_counter = {}
+                    
+                    if src_mac not in self.deauth_counter:
+                        self.deauth_counter[src_mac] = {'count': 1, 'last_time': time.time()}
+                    else:
+                        self.deauth_counter[src_mac]['count'] += 1
+                        current_time = time.time()
+                        time_diff = current_time - self.deauth_counter[src_mac]['last_time']
+                        self.deauth_counter[src_mac]['last_time'] = current_time
+                        
+                        # Если много пакетов за короткое время
+                        if self.deauth_counter[src_mac]['count'] > 5 and time_diff < 2.0:
+                            ddos_status = 'DDoS/Deauth (MDK3)'
+                            logger.info(f"[DETECTED] DDoS/Deauth packet by frequency from {src_mac} (count: {self.deauth_counter[src_mac]['count']})")
 
                 # Логируем все пакеты для анализа (временно)
                 if pkt_type == '0' and subtype in ['10', '11', '12']:
