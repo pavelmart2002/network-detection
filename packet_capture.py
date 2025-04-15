@@ -221,20 +221,37 @@ class PacketCapture:
                 # Определяем, с какого интерфейса пришел пакет
                 interface = getattr(packet, 'sniffed_on', self.current_interface)
                 
-                # Логируем информацию о пакете для отладки
-                logger.info(f"ПАКЕТ: интерфейс={interface}, src={src_mac}, rssi={rssi}")
+                # Получаем время прибытия пакета для метода TDoA
+                arrival_time = time.time()
                 
-                # Сохраняем RSSI для пеленгации
-                if rssi is not None and src_mac != 'Unknown':
+                # Логируем информацию о пакете для отладки
+                logger.info(f"ПАКЕТ: интерфейс={interface}, src={src_mac}, rssi={rssi}, время={arrival_time}")
+                
+                # Сохраняем RSSI и время прибытия для пеленгации
+                if src_mac != 'Unknown':
                     if src_mac not in self.rssi_data:
                         self.rssi_data[src_mac] = {}
-                    self.rssi_data[src_mac][interface] = rssi
-                    logger.info(f"Сохранен RSSI для {src_mac} на интерфейсе {interface}: {rssi}")
+                    
+                    # Сохраняем данные для текущего интерфейса
+                    if interface not in self.rssi_data[src_mac]:
+                        self.rssi_data[src_mac][interface] = {
+                            'rssi': None,
+                            'arrival_time': None,
+                            'packet_count': 0
+                        }
+                    
+                    # Обновляем данные
+                    self.rssi_data[src_mac][interface]['rssi'] = rssi
+                    self.rssi_data[src_mac][interface]['arrival_time'] = arrival_time
+                    self.rssi_data[src_mac][interface]['packet_count'] += 1
+                    
+                    logger.info(f"Сохранены данные для {src_mac} на интерфейсе {interface}: RSSI={rssi}, время={arrival_time}")
                 
                 # Вычисляем направление на источник (включаем пеленгацию для всех пакетов)
                 direction = None
                 if self.triangulation_enabled and src_mac in self.rssi_data:
-                    direction = self._calculate_direction(src_mac)
+                    # Используем комбинированный метод (RSSI + TDoA)
+                    direction = self._calculate_direction_combined(src_mac)
                     logger.info(f"Вычислено направление для {src_mac}: {direction}")
 
                 # МАКСИМАЛЬНО ПРОСТОЕ ОБНАРУЖЕНИЕ АТАК
@@ -314,38 +331,115 @@ class PacketCapture:
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
             
-    def _calculate_direction(self, src_mac):
-        """Вычисление направления на источник на основе RSSI от разных интерфейсов"""
+    def _calculate_direction_rssi(self, src_mac):
+        """Вычисление направления на основе разницы RSSI (амплитудный метод)"""
         try:
             # Проверяем, есть ли данные от обоих интерфейсов
-            if self.current_interface in self.rssi_data[src_mac] and self.secondary_interface in self.rssi_data[src_mac]:
-                rssi1 = self.rssi_data[src_mac][self.current_interface]
-                rssi2 = self.rssi_data[src_mac][self.secondary_interface]
+            if (self.current_interface in self.rssi_data[src_mac] and 
+                self.secondary_interface in self.rssi_data[src_mac] and
+                self.rssi_data[src_mac][self.current_interface]['rssi'] is not None and
+                self.rssi_data[src_mac][self.secondary_interface]['rssi'] is not None):
+                
+                rssi1 = self.rssi_data[src_mac][self.current_interface]['rssi']
+                rssi2 = self.rssi_data[src_mac][self.secondary_interface]['rssi']
                 
                 # Разница в RSSI между интерфейсами
                 rssi_diff = rssi1 - rssi2
                 
                 # Логируем данные для отладки
-                logger.info(f"ПЕЛЕНГАЦИЯ: MAC={src_mac}, RSSI1={rssi1}, RSSI2={rssi2}, разница={rssi_diff}")
+                logger.info(f"ПЕЛЕНГАЦИЯ RSSI: MAC={src_mac}, RSSI1={rssi1}, RSSI2={rssi2}, разница={rssi_diff}")
                 
                 # Простой алгоритм определения направления
                 if abs(rssi_diff) < 5:
-                    return "Прямо впереди"
+                    return "Прямо впереди", 0.7  # Уверенность 70%
                 elif rssi_diff > 0:
-                    return "Слева"
+                    return "Слева", 0.6 + min(0.3, abs(rssi_diff) / 30)  # Уверенность 60-90%
                 else:
-                    return "Справа"
+                    return "Справа", 0.6 + min(0.3, abs(rssi_diff) / 30)  # Уверенность 60-90%
             
-            # Если нет данных от обоих интерфейсов, возвращаем None
-            if src_mac in self.rssi_data:
-                interfaces = list(self.rssi_data[src_mac].keys())
-                logger.info(f"Недостаточно данных для пеленгации {src_mac}. Доступные интерфейсы: {interfaces}")
-            
-            return None
+            return None, 0
         except Exception as e:
-            logger.error(f"Error calculating direction: {e}", exc_info=True)
-            return None
+            logger.error(f"Error calculating RSSI direction: {e}", exc_info=True)
+            return None, 0
+    
+    def _calculate_direction_tdoa(self, src_mac):
+        """Вычисление направления на основе разницы времени прибытия (TDoA)"""
+        try:
+            # Проверяем, есть ли данные о времени прибытия от обоих интерфейсов
+            if (self.current_interface in self.rssi_data[src_mac] and 
+                self.secondary_interface in self.rssi_data[src_mac] and
+                self.rssi_data[src_mac][self.current_interface]['arrival_time'] is not None and
+                self.rssi_data[src_mac][self.secondary_interface]['arrival_time'] is not None):
+                
+                time1 = self.rssi_data[src_mac][self.current_interface]['arrival_time']
+                time2 = self.rssi_data[src_mac][self.secondary_interface]['arrival_time']
+                
+                # Разница во времени прибытия (в микросекундах)
+                time_diff = (time1 - time2) * 1000000  # Переводим в микросекунды
+                
+                # Логируем данные для отладки
+                logger.info(f"ПЕЛЕНГАЦИЯ TDoA: MAC={src_mac}, Time1={time1}, Time2={time2}, разница={time_diff} мкс")
+                
+                # Алгоритм определения направления на основе TDoA
+                # Скорость света примерно 300 000 км/с или 0.3 м/нс
+                # Для расстояния между антеннами 10-20 см разница во времени будет очень маленькой
+                # Поэтому используем пороговые значения
+                
+                # Если разница меньше порога, считаем что источник прямо впереди
+                if abs(time_diff) < 50:  # 50 микросекунд
+                    return "Прямо впереди", 0.8  # Уверенность 80%
+                elif time_diff > 0:
+                    return "Слева", 0.7 + min(0.2, abs(time_diff) / 500)  # Уверенность 70-90%
+                else:
+                    return "Справа", 0.7 + min(0.2, abs(time_diff) / 500)  # Уверенность 70-90%
             
+            return None, 0
+        except Exception as e:
+            logger.error(f"Error calculating TDoA direction: {e}", exc_info=True)
+            return None, 0
+    
+    def _calculate_direction_combined(self, src_mac):
+        """Комбинированный метод пеленгации, использующий RSSI и TDoA"""
+        try:
+            # Получаем результаты от обоих методов
+            rssi_direction, rssi_confidence = self._calculate_direction_rssi(src_mac)
+            tdoa_direction, tdoa_confidence = self._calculate_direction_tdoa(src_mac)
+            
+            logger.info(f"КОМБИНИРОВАННАЯ ПЕЛЕНГАЦИЯ: RSSI={rssi_direction} ({rssi_confidence:.2f}), TDoA={tdoa_direction} ({tdoa_confidence:.2f})")
+            
+            # Если один из методов не дал результата, используем другой
+            if not rssi_direction:
+                return tdoa_direction
+            if not tdoa_direction:
+                return rssi_direction
+            
+            # Если оба метода дали одинаковый результат, используем его
+            if rssi_direction == tdoa_direction:
+                return rssi_direction
+            
+            # Если результаты разные, используем метод с большей уверенностью
+            if rssi_confidence > tdoa_confidence:
+                logger.info(f"Выбрано направление по RSSI: {rssi_direction} (уверенность {rssi_confidence:.2f})")
+                return rssi_direction
+            else:
+                logger.info(f"Выбрано направление по TDoA: {tdoa_direction} (уверенность {tdoa_confidence:.2f})")
+                return tdoa_direction
+            
+        except Exception as e:
+            logger.error(f"Error in combined direction calculation: {e}", exc_info=True)
+            
+            # В случае ошибки возвращаем результат любого метода, который сработал
+            if rssi_direction:
+                return rssi_direction
+            if tdoa_direction:
+                return tdoa_direction
+            
+            return None
+    
+    def _calculate_direction(self, src_mac):
+        """Устаревший метод, оставлен для совместимости"""
+        return self._calculate_direction_combined(src_mac)
+    
     def set_secondary_interface(self, interface):
         """Установка вторичного интерфейса для пеленгации"""
         try:
