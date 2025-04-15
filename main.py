@@ -113,6 +113,15 @@ class MainWindow(QMainWindow):
                     color: #FFA500;
                     border: 1px solid #FFA500;
                 }
+                QTableWidget::item {
+                    background-color: #181818;
+                    color: #FFA500;
+                    padding: 2px 6px;
+                }
+                QTableWidget QTableCornerButton::section {
+                    background-color: #181818;
+                    border: 1px solid #FFA500;
+                }
                 QLineEdit, QComboBox, QDialog, QPushButton {
                     background-color: #222;
                     color: #FFA500;
@@ -169,7 +178,7 @@ class MainWindow(QMainWindow):
             
             # Цвета для разных состояний
             self.COLORS = {
-                'normal': QColor(255, 255, 255),  # Белый
+                'normal': QColor(255, 165, 0),  # Оранжевый
                 'warning': QColor(255, 255, 0),   # Желтый
                 'danger': QColor(255, 0, 0),      # Красный
                 'High frequency of probe requests': QColor(255, 165, 0),     # Оранжевый
@@ -280,6 +289,12 @@ class MainWindow(QMainWindow):
 
             # Начальное состояние кнопок
             self.stop_button.setEnabled(False)
+
+            # --- Компактные строки таблицы ---
+            self.packets_table.verticalHeader().setDefaultSectionSize(22)
+            self.packets_table.setStyleSheet("QTableWidget::item { padding: 2px 6px; }")
+            self.mac_table.verticalHeader().setDefaultSectionSize(22)
+            self.mac_table.setStyleSheet("QTableWidget::item { padding: 2px 6px; }")
 
             logger.info("UI initialized successfully")
         except Exception as e:
