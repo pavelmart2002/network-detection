@@ -7,12 +7,20 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
 from PySide6.QtCore import Qt, QTimer, QMetaObject, Slot, Q_ARG, QThread
 from PySide6.QtGui import QColor, QBrush
 from datetime import datetime
+import sys
+import os
+import time
+import logging
+import queue
+import threading
+from typing import Callable, Optional, Dict, List, Any, Tuple
+
 from packet_capture import PacketCapture
+from triangulation_view import TriangulationView
 from packet_analyzer import PacketAnalyzer
 import logging
 import traceback
 import threading
-import time
 import os
 
 # Настройка логирования
@@ -238,7 +246,10 @@ class MainWindow(QMainWindow):
         triangulation_buttons_layout = QHBoxLayout()
         self.enable_triangulation_button = QPushButton("Включить пеленгацию")
         self.enable_triangulation_button.setCheckable(True)
+        self.show_triangulation_view_button = QPushButton("Показать диаграмму")
+        self.show_triangulation_view_button.setEnabled(False)
         triangulation_buttons_layout.addWidget(self.enable_triangulation_button)
+        triangulation_buttons_layout.addWidget(self.show_triangulation_view_button)
         triangulation_layout.addLayout(triangulation_buttons_layout)
         
         # Добавляем группу пеленгации в верхнюю панель
@@ -264,6 +275,9 @@ class MainWindow(QMainWindow):
         self.packet_capture = PacketCapture()
         self.packet_buffer = []
         
+        # Инициализация окна пеленгации
+        self.triangulation_view = None
+        
         # Таймер для обновления таблицы
         self.update_timer = QTimer()
         self.update_timer.timeout.connect(self.update_packet_table)
@@ -275,6 +289,7 @@ class MainWindow(QMainWindow):
         self.stop_button.clicked.connect(self.stop_capture)
         self.set_channel_button.clicked.connect(self.set_channel)
         self.enable_triangulation_button.clicked.connect(self.toggle_triangulation)
+        self.show_triangulation_view_button.clicked.connect(self.show_triangulation_view)
         
         # Инициализация интерфейсов
         self.refresh_interfaces()
@@ -283,6 +298,7 @@ class MainWindow(QMainWindow):
         """Включение/выключение пеленгации"""
         if self.enable_triangulation_button.isChecked():
             self.enable_triangulation_button.setText("Выключить пеленгацию")
+            self.show_triangulation_view_button.setEnabled(True)
             self.statusBar().showMessage("Пеленгация включена")
             
             # Если захват уже запущен, перезапускаем с пеленгацией
@@ -291,12 +307,28 @@ class MainWindow(QMainWindow):
                 self.start_capture_with_triangulation()
         else:
             self.enable_triangulation_button.setText("Включить пеленгацию")
+            self.show_triangulation_view_button.setEnabled(False)
             self.statusBar().showMessage("Пеленгация выключена")
             
             # Если захват запущен, перезапускаем без пеленгации
             if self.packet_capture.is_running:
                 self.stop_capture()
                 self.start_capture()
+            
+            # Закрываем окно пеленгации, если оно открыто
+            if self.triangulation_view:
+                self.triangulation_view.close()
+                self.triangulation_view = None
+    
+    def show_triangulation_view(self):
+        """Показать окно с круговой диаграммой пеленгации"""
+        if not self.triangulation_view:
+            self.triangulation_view = TriangulationView()
+            
+        # Показываем окно
+        self.triangulation_view.show()
+        self.triangulation_view.raise_()
+        self.triangulation_view.activateWindow()
     
     def start_capture_with_triangulation(self):
         """Запуск захвата с пеленгацией"""
@@ -486,6 +518,26 @@ class MainWindow(QMainWindow):
             # Ограничиваем размер буфера
             if len(self.packet_buffer) > self.MAX_ROWS * 2:
                 self.packet_buffer = self.packet_buffer[-self.MAX_ROWS:]
+            
+            # Обновляем окно пеленгации, если оно открыто и пакет содержит информацию о направлении
+            if self.triangulation_view and packet_info.get('direction') and packet_info.get('ddos_status'):
+                # Получаем данные для отображения
+                direction = packet_info.get('direction', '')
+                rssi = packet_info.get('rssi', 0)
+                
+                # Преобразуем RSSI в процент мощности сигнала (обычно RSSI от -100 до 0 дБм)
+                if rssi:
+                    signal_strength = min(100, max(0, (rssi + 100) * 100 // 100))
+                else:
+                    signal_strength = 50  # По умолчанию 50%
+                
+                # Устанавливаем направление в окне пеленгации
+                self.triangulation_view.set_direction(
+                    direction,
+                    signal_strength,
+                    packet_info.get('src', ''),
+                    packet_info.get('ddos_status', '')
+                )
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
 
