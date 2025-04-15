@@ -191,40 +191,50 @@ class PacketCapture:
                         packet_dict[field.name] = getattr(packet, field.name)
                     logger.info(f"[PACKET ALL FIELDS] {packet_dict}")
 
-                # МАКСИМАЛЬНО АГРЕССИВНОЕ обнаружение DDoS/Deauth пакетов
-                ddos_status = ''
+                # Инициализация счетчиков для источников
+                if not hasattr(self, 'source_counters'):
+                    self.source_counters = {}
+                    self.last_check_time = time.time()
                 
-                # Проверка 1: Любой пакет с типом 0 (Management)
-                if pkt_type == '0':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"[DETECTED] DDoS/Deauth packet by management type from {src_mac} to {dst_mac}")
+                # Подсчет пакетов от каждого источника
+                if src_mac != 'Unknown':
+                    if src_mac not in self.source_counters:
+                        self.source_counters[src_mac] = 1
+                    else:
+                        self.source_counters[src_mac] += 1
                 
-                # Проверка 2: через haslayer для любого Dot11 пакета
-                elif packet.haslayer(Dot11) and (src_mac in self.BROADCAST_MAC or dst_mac in self.BROADCAST_MAC):
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"[DETECTED] DDoS/Deauth packet by Dot11 layer from {src_mac} to {dst_mac}")
-                
-                # Проверка 3: по строке в пакете
-                elif any(keyword in str(packet).lower() for keyword in ['deauth', 'disassoc', 'auth']):
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"[DETECTED] DDoS/Deauth packet by string search from {src_mac} to {dst_mac}")
-                
-                # Проверка 4: по частоте пакетов от одного источника
-                if not hasattr(self, 'packet_counter'):
-                    self.packet_counter = {}
-                
-                if src_mac not in self.packet_counter:
-                    self.packet_counter[src_mac] = {'count': 1, 'last_time': time.time()}
-                else:
-                    self.packet_counter[src_mac]['count'] += 1
-                    current_time = time.time()
-                    time_diff = current_time - self.packet_counter[src_mac]['last_time']
-                    self.packet_counter[src_mac]['last_time'] = current_time
+                # Проверка на атаку по частоте пакетов от одного источника (каждые 2 секунды)
+                current_time = time.time()
+                if current_time - getattr(self, 'last_check_time', 0) > 2.0:
+                    # Находим источники с большим количеством пакетов
+                    attack_sources = []
+                    for mac, count in self.source_counters.items():
+                        if count > 5:  # Если больше 5 пакетов за 2 секунды
+                            attack_sources.append((mac, count))
+                            logger.info(f"[ATTACK SOURCE] {mac} sent {count} packets in 2 seconds")
                     
-                    # Если много пакетов за короткое время от одного источника
-                    if self.packet_counter[src_mac]['count'] > 3 and time_diff < 1.0:
+                    # Сбрасываем счетчики
+                    self.source_counters = {}
+                    self.last_check_time = current_time
+                    
+                    # Если есть источники атаки, помечаем этот пакет
+                    if attack_sources and src_mac in [s[0] for s in attack_sources]:
+                        logger.info(f"[DETECTED] DDoS/Deauth attack from {src_mac} (high frequency)")
                         ddos_status = 'DDoS/Deauth (MDK3)'
-                        logger.info(f"[DETECTED] DDoS/Deauth packet by frequency from {src_mac} (count: {self.packet_counter[src_mac]['count']})")
+                    else:
+                        ddos_status = ''
+                else:
+                    # Проверяем, есть ли уже известные источники атак
+                    if hasattr(self, 'known_attack_sources') and src_mac in self.known_attack_sources:
+                        ddos_status = 'DDoS/Deauth (MDK3)'
+                    else:
+                        ddos_status = ''
+                
+                # Обновляем список известных источников атак
+                if ddos_status:
+                    if not hasattr(self, 'known_attack_sources'):
+                        self.known_attack_sources = set()
+                    self.known_attack_sources.add(src_mac)
 
                 packet_info = {
                     'src': src_mac,
