@@ -510,24 +510,19 @@ class MainWindow(QMainWindow):
     def update_packet_table(self):
         """Обновляет таблицу пакетов на основе данных из буфера"""
         try:
-            # Получаем все новые пакеты из буфера
-            current_rows = self.packets_table.rowCount()
-            new_packets = self.packet_buffer[current_rows:]
+            # Полностью перестраиваем таблицу каждый раз, но ограничиваем количество строк
+            # Это менее эффективно, но более стабильно
+            self.packets_table.setRowCount(0)  # Очищаем таблицу
             
-            # Если таблица слишком большая, очищаем её
-            if current_rows > self.MAX_ROWS:
-                logger.debug(f"[DEBUG] Clearing packet table (rows: {current_rows} > {self.MAX_ROWS})")
-                self.packets_table.setRowCount(0)
-                current_rows = 0
-                new_packets = self.packet_buffer[-self.MAX_ROWS:]  # Берем последние MAX_ROWS пакетов
+            # Берем только последние MAX_ROWS пакетов, но не более MAX_UPDATE_ROWS
+            display_packets = self.packet_buffer[-self.MAX_ROWS:]
+            if len(display_packets) > self.MAX_UPDATE_ROWS:
+                display_packets = display_packets[-self.MAX_UPDATE_ROWS:]
             
-            # Ограничиваем количество новых строк для обновления за один раз
-            if len(new_packets) > self.MAX_UPDATE_ROWS:  # Не более MAX_UPDATE_ROWS пакетов за одно обновление
-                logger.debug(f"[DEBUG] Limiting packet table update to {self.MAX_UPDATE_ROWS} rows (had {len(new_packets)})")
-                new_packets = new_packets[-self.MAX_UPDATE_ROWS:]  # Берем только последние MAX_UPDATE_ROWS
+            logger.debug(f"[DEBUG] Rebuilding packet table with {len(display_packets)} rows (buffer size: {len(self.packet_buffer)})")
             
-            # Добавляем новые пакеты
-            for packet_info in new_packets:
+            # Добавляем пакеты
+            for packet_info in display_packets:
                 row = self.packets_table.rowCount()
                 self.packets_table.insertRow(row)
                 
@@ -570,8 +565,8 @@ class MainWindow(QMainWindow):
                 self.packets_table.setItem(row, 6, fcs_item)
                 self.packets_table.setItem(row, 7, status_item)
             
-            # Прокручиваем таблицу к последней строке только при добавлении новых пакетов
-            if new_packets:
+            # Прокручиваем таблицу к последней строке
+            if display_packets:
                 self.packets_table.scrollToBottom()
             
         except Exception as e:

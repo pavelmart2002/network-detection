@@ -224,9 +224,23 @@ class PacketCapture:
     def process_queued_packets(self):
         """ВЫЗЫВАТЬ ТОЛЬКО ИЗ ГЛАВНОГО ПОТОКА! Передавать пакеты из очереди в callback GUI."""
         try:
-            while not self.packet_queue.empty():
-                pkt = self.packet_queue.get()
-                self._process_packet(pkt)
+            # Ограничиваем количество обрабатываемых пакетов за один вызов
+            max_packets = 30
+            processed = 0
+            
+            while not self.packet_queue.empty() and processed < max_packets:
+                try:
+                    pkt = self.packet_queue.get(block=False)
+                    self._process_packet(pkt)
+                    processed += 1
+                except queue.Empty:
+                    break
+                except Exception as e:
+                    logger.error(f"Error processing packet from queue: {e}", exc_info=True)
+            
+            if processed > 0:
+                logger.debug(f"[DEBUG] Processed {processed} packets from queue")
+            
         except Exception as e:
             logger.error(f"Error processing queued packets: {e}", exc_info=True)
 
