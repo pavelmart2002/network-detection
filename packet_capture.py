@@ -140,6 +140,24 @@ class PacketCapture:
         except Exception as e:
             logger.error(f"Error queuing packet: {e}", exc_info=True)
 
+    def _lookup_vendor(self, mac):
+        """Грубый поиск производителя по первым трём октетам MAC (OUI)"""
+        try:
+            if not mac or mac == 'Unknown':
+                return 'Unknown'
+            oui = mac.upper().replace('-', ':').split(':')[0:3]
+            oui_str = ':'.join(oui)
+            # Можно подгрузить базу OUI, но для простоты — несколько примеров
+            known_ouis = {
+                '00:11:22': 'Cisco',
+                '3A:64:43': 'Apple',
+                '9E:AE:D3': 'Samsung',
+                'F6:30:F7': 'Intel',
+            }
+            return known_ouis.get(oui_str, 'Unknown')
+        except Exception:
+            return 'Unknown'
+
     def _process_packet(self, packet: Packet):
         """Обработка захваченного пакета и формирование словаря для GUI"""
         try:
@@ -153,17 +171,36 @@ class PacketCapture:
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
                 vendor = self._lookup_vendor(src_mac)
 
-                # DDoS/Deauth detection (MDK3) - более надежная проверка
+                # DDoS/Deauth detection (MDK3) - расширенное обнаружение
                 ddos_status = ''
-                # Проверка по типу и подтипу (deauth = тип 0, подтип 12)
+                
+                # Проверка 1: по типу и подтипу (deauth = тип 0, подтип 12)
                 if hasattr(packet, 'type') and hasattr(packet, 'subtype'):
                     if packet.type == 0 and packet.subtype == 12:  # Management frame, Deauthentication
                         ddos_status = 'DDoS/Deauth (MDK3)'
-                        logger.info(f"[DETECTED] DDoS/Deauth packet from {src_mac} to {dst_mac}")
-                # Дополнительная проверка через haslayer
+                        logger.info(f"[DETECTED] DDoS/Deauth packet by type/subtype from {src_mac} to {dst_mac}")
+                
+                # Проверка 2: через haslayer
                 elif packet.haslayer(Dot11Deauth):
                     ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"[DETECTED] DDoS/Deauth packet from {src_mac} to {dst_mac}")
+                    logger.info(f"[DETECTED] DDoS/Deauth packet by haslayer from {src_mac} to {dst_mac}")
+                
+                # Проверка 3: по строке в frame_subtype
+                elif 'deauth' in str(packet).lower() or 'deauthentication' in str(packet).lower():
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"[DETECTED] DDoS/Deauth packet by string search from {src_mac} to {dst_mac}")
+                
+                # Проверка 4: по FC (Frame Control) полю для MDK3
+                if hasattr(packet, 'FCfield'):
+                    fc_field = packet.FCfield
+                    # Типичные значения для deauth пакетов от MDK3
+                    if fc_field == 0 and packet.type == 0 and packet.subtype in [10, 11, 12]:
+                        ddos_status = 'DDoS/Deauth (MDK3)'
+                        logger.info(f"[DETECTED] DDoS/Deauth packet by FCfield from {src_mac} to {dst_mac}")
+
+                # Логируем все пакеты для анализа (временно)
+                if pkt_type == '0' and subtype in ['10', '11', '12']:
+                    logger.debug(f"[DEBUG] Potential deauth/disassoc packet: type={pkt_type}, subtype={subtype}, src={src_mac}")
 
                 packet_info = {
                     'src': src_mac,
@@ -183,24 +220,6 @@ class PacketCapture:
                     self.packet_callback(packet_info)
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
-
-    def _lookup_vendor(self, mac):
-        """Грубый поиск производителя по первым трём октетам MAC (OUI)"""
-        try:
-            if not mac or mac == 'Unknown':
-                return 'Unknown'
-            oui = mac.upper().replace('-', ':').split(':')[0:3]
-            oui_str = ':'.join(oui)
-            # Можно подгрузить базу OUI, но для простоты — несколько примеров
-            known_ouis = {
-                '00:11:22': 'Cisco',
-                '3A:64:43': 'Apple',
-                '9E:AE:D3': 'Samsung',
-                'F6:30:F7': 'Intel',
-            }
-            return known_ouis.get(oui_str, 'Unknown')
-        except Exception:
-            return 'Unknown'
 
     def process_queued_packets(self):
         """ВЫЗЫВАТЬ ТОЛЬКО ИЗ ГЛАВНОГО ПОТОКА! Передавать пакеты из очереди в callback GUI."""

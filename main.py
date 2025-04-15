@@ -178,6 +178,8 @@ class MainWindow(QMainWindow):
             
             # Инициализация буферов для пакетов и MAC-адресов
             self.BUFFER_SIZE = 1000
+            self.MAX_ROWS = 200  # Максимальное количество строк в таблице
+            self.MAX_UPDATE_ROWS = 30  # Максимальное количество строк для обновления за раз
             
             # Цвета для разных состояний
             self.COLORS = {
@@ -520,9 +522,9 @@ class MainWindow(QMainWindow):
                 new_packets = self.packet_buffer[-self.MAX_ROWS:]  # Берем последние MAX_ROWS пакетов
             
             # Ограничиваем количество новых строк для обновления за один раз
-            if len(new_packets) > 50:  # Не более 50 пакетов за одно обновление
-                logger.debug(f"[DEBUG] Limiting packet table update to 50 rows (had {len(new_packets)})")
-                new_packets = new_packets[-50:]  # Берем только последние 50
+            if len(new_packets) > self.MAX_UPDATE_ROWS:  # Не более MAX_UPDATE_ROWS пакетов за одно обновление
+                logger.debug(f"[DEBUG] Limiting packet table update to {self.MAX_UPDATE_ROWS} rows (had {len(new_packets)})")
+                new_packets = new_packets[-self.MAX_UPDATE_ROWS:]  # Берем только последние MAX_UPDATE_ROWS
             
             # Добавляем новые пакеты
             for packet_info in new_packets:
@@ -568,7 +570,7 @@ class MainWindow(QMainWindow):
                 self.packets_table.setItem(row, 6, fcs_item)
                 self.packets_table.setItem(row, 7, status_item)
             
-            # Прокручиваем таблицу к последней строке
+            # Прокручиваем таблицу к последней строке только при добавлении новых пакетов
             if new_packets:
                 self.packets_table.scrollToBottom()
             
