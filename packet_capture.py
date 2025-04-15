@@ -53,7 +53,7 @@ class PacketCapture:
             self.current_channel = 1
             self.channel_hop_interval = 0.5  # Добавляем интервал переключения каналов
             self.channel_lock = threading.Lock()  # Новый lock для синхронизации
-            self.packet_queue = queue.Queue()  # Очередь для передачи пакетов между потоками
+            self.packet_queue = queue.Queue(maxsize=500)  # Ограничиваем размер очереди
             logger.info(f"Initialized with interface: {self.current_interface}")
             
         except Exception as e:
@@ -132,8 +132,11 @@ class PacketCapture:
         """Кладём обработанный пакет в очередь для главного потока"""
         try:
             if packet.haslayer(Dot11):
-                # Можно добавить предварительную обработку, если нужно
-                self.packet_queue.put(packet)
+                # Не блокируем поток, если очередь заполнена — просто сбрасываем пакет
+                try:
+                    self.packet_queue.put(packet, block=False)
+                except queue.Full:
+                    logger.warning('[DEBUG] Packet queue is full, dropping packet')
         except Exception as e:
             logger.error(f"Error queuing packet: {e}", exc_info=True)
 
