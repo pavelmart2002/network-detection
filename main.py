@@ -118,6 +118,9 @@ class MainWindow(QMainWindow):
                     color: #FFA500;
                     padding: 2px 6px;
                 }
+                QTableWidget::item:alternate {
+                    background-color: #232323;
+                }
                 QTableWidget QTableCornerButton::section {
                     background-color: #181818;
                     border: 1px solid #FFA500;
@@ -290,9 +293,11 @@ class MainWindow(QMainWindow):
             # Начальное состояние кнопок
             self.stop_button.setEnabled(False)
 
-            # --- Компактные строки таблицы ---
+            # --- Компактные строки таблицы и чередование цветов ---
+            self.packets_table.setAlternatingRowColors(True)
             self.packets_table.verticalHeader().setDefaultSectionSize(22)
             self.packets_table.setStyleSheet("QTableWidget::item { padding: 2px 6px; }")
+            self.mac_table.setAlternatingRowColors(True)
             self.mac_table.verticalHeader().setDefaultSectionSize(22)
             self.mac_table.setStyleSheet("QTableWidget::item { padding: 2px 6px; }")
 
