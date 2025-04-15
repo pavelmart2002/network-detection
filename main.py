@@ -514,9 +514,15 @@ class MainWindow(QMainWindow):
             
             # Если таблица слишком большая, очищаем её
             if current_rows > self.MAX_ROWS:
+                logger.debug(f"[DEBUG] Clearing packet table (rows: {current_rows} > {self.MAX_ROWS})")
                 self.packets_table.setRowCount(0)
                 current_rows = 0
                 new_packets = self.packet_buffer[-self.MAX_ROWS:]  # Берем последние MAX_ROWS пакетов
+            
+            # Ограничиваем количество новых строк для обновления за один раз
+            if len(new_packets) > 50:  # Не более 50 пакетов за одно обновление
+                logger.debug(f"[DEBUG] Limiting packet table update to 50 rows (had {len(new_packets)})")
+                new_packets = new_packets[-50:]  # Берем только последние 50
             
             # Добавляем новые пакеты
             for packet_info in new_packets:

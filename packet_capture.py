@@ -153,11 +153,17 @@ class PacketCapture:
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
                 vendor = self._lookup_vendor(src_mac)
 
-                # DDoS/Deauth detection (MDK3)
-                if packet.haslayer(Dot11Deauth):
+                # DDoS/Deauth detection (MDK3) - более надежная проверка
+                ddos_status = ''
+                # Проверка по типу и подтипу (deauth = тип 0, подтип 12)
+                if hasattr(packet, 'type') and hasattr(packet, 'subtype'):
+                    if packet.type == 0 and packet.subtype == 12:  # Management frame, Deauthentication
+                        ddos_status = 'DDoS/Deauth (MDK3)'
+                        logger.info(f"[DETECTED] DDoS/Deauth packet from {src_mac} to {dst_mac}")
+                # Дополнительная проверка через haslayer
+                elif packet.haslayer(Dot11Deauth):
                     ddos_status = 'DDoS/Deauth (MDK3)'
-                else:
-                    ddos_status = ''
+                    logger.info(f"[DETECTED] DDoS/Deauth packet from {src_mac} to {dst_mac}")
 
                 packet_info = {
                     'src': src_mac,
