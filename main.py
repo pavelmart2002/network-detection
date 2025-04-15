@@ -325,6 +325,23 @@ class MainWindow(QMainWindow):
         if not self.triangulation_view:
             self.triangulation_view = TriangulationView()
             
+            # Устанавливаем флаг демонстрационного режима в зависимости от наличия реальных данных
+            has_direction_data = False
+            for packet in self.packet_buffer:
+                if packet.get('direction'):
+                    has_direction_data = True
+                    # Если есть реальные данные, сразу устанавливаем их
+                    self.triangulation_view.set_direction(
+                        packet.get('direction'),
+                        signal_strength=50,
+                        mac=packet.get('src', ''),
+                        attack_type=packet.get('ddos_status', 'Обычный пакет')
+                    )
+                    break
+            
+            # Если нет реальных данных, включаем демо-режим
+            self.triangulation_view.demo_mode = not has_direction_data
+            
         # Показываем окно
         self.triangulation_view.show()
         self.triangulation_view.raise_()

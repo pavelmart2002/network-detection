@@ -50,11 +50,38 @@ class TriangulationView(QWidget):
         self.update_timer.timeout.connect(self.update_view)
         self.update_timer.start(100)  # Обновление каждые 100 мс
         
+        # Таймер для демонстрационного режима
+        self.demo_timer = QTimer(self)
+        self.demo_timer.timeout.connect(self.update_demo)
+        self.demo_timer.start(2000)  # Обновление каждые 2 секунды
+        
+        # Флаг демонстрационного режима
+        self.demo_mode = True
+        self.demo_direction_index = 0
+        self.demo_directions = ["Слева", "Прямо впереди", "Справа"]
+        
         logger.info("TriangulationView initialized")
     
     def update_view(self):
         """Обновление отображения"""
         self.update()  # Перерисовка виджета
+    
+    def update_demo(self):
+        """Обновление демонстрационного режима"""
+        if self.demo_mode and not self.direction:
+            # Циклически меняем направление
+            direction = self.demo_directions[self.demo_direction_index]
+            self.demo_direction_index = (self.demo_direction_index + 1) % len(self.demo_directions)
+            
+            # Устанавливаем демонстрационные данные
+            self.set_direction(
+                direction,
+                signal_strength=70,
+                mac="00:11:22:33:44:55",
+                attack_type="Демонстрационный режим"
+            )
+            
+            logger.info(f"Демонстрационный режим: направление = {direction}")
     
     def set_direction(self, direction_text, signal_strength=50, mac="", attack_type=""):
         """Установка направления на источник
@@ -65,6 +92,10 @@ class TriangulationView(QWidget):
             mac (str): MAC-адрес источника
             attack_type (str): Тип атаки
         """
+        # Если получены реальные данные, отключаем демо-режим
+        if mac and mac != "00:11:22:33:44:55":
+            self.demo_mode = False
+        
         # Преобразуем текстовое направление в градусы
         if direction_text == "Слева":
             self.direction = 315  # 315 градусов (10:30 на часах)
