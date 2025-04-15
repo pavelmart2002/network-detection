@@ -191,19 +191,26 @@ class PacketCapture:
                         packet_dict[field.name] = getattr(packet, field.name)
                     logger.info(f"[PACKET ALL FIELDS] {packet_dict}")
 
-                # ПРЯМОЕ ОБНАРУЖЕНИЕ АТАК ПО СКРИНШОТУ
-                # Если destination = ff:ff:ff:ff:ff:ff и тип = 0, это 100% атака
+                # БОЛЕЕ ТОЧНОЕ ОБНАРУЖЕНИЕ АТАК
                 ddos_status = ''
-                if dst_mac.lower() == 'ff:ff:ff:ff:ff:ff' and pkt_type == '0':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"[DETECTED] DDoS/Deauth attack with broadcast destination from {src_mac}")
                 
-                # Если источник повторяется в последовательных пакетах - это атака
                 # Инициализация счетчиков для источников
                 if not hasattr(self, 'source_counters'):
                     self.source_counters = {}
                     self.last_check_time = time.time()
                     self.known_attack_sources = set()
+                    self.attack_mode_detected = False
+                
+                # Если уже обнаружен режим атаки, проверяем признаки
+                if getattr(self, 'attack_mode_detected', False):
+                    # Если destination = ff:ff:ff:ff:ff:ff и тип = 0, это атака
+                    if dst_mac.lower() == 'ff:ff:ff:ff:ff:ff' and pkt_type == '0':
+                        ddos_status = 'DDoS/Deauth (MDK3)'
+                        logger.info(f"[DETECTED] DDoS/Deauth attack with broadcast destination from {src_mac}")
+                    
+                    # Если источник уже известен как атакующий - помечаем его пакеты
+                    if src_mac in getattr(self, 'known_attack_sources', set()):
+                        ddos_status = 'DDoS/Deauth (MDK3)'
                 
                 # Подсчет пакетов от каждого источника
                 if src_mac != 'Unknown':
@@ -211,23 +218,33 @@ class PacketCapture:
                         self.source_counters[src_mac] = 1
                     else:
                         self.source_counters[src_mac] += 1
-                        # Если от одного источника пришло больше 3 пакетов - это атака
-                        if self.source_counters[src_mac] > 3:
-                            ddos_status = 'DDoS/Deauth (MDK3)'
-                            self.known_attack_sources.add(src_mac)
-                            logger.info(f"[DETECTED] DDoS/Deauth attack by frequency from {src_mac} (count: {self.source_counters[src_mac]})")
                 
-                # Если источник уже известен как атакующий - помечаем все его пакеты
-                if src_mac in getattr(self, 'known_attack_sources', set()):
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                
-                # Каждые 10 секунд сбрасываем счетчики (но не список известных атакующих)
+                # Каждые 5 секунд проверяем наличие атаки
                 current_time = time.time()
-                if current_time - getattr(self, 'last_check_time', 0) > 10.0:
+                if current_time - getattr(self, 'last_check_time', 0) > 5.0:
+                    # Находим источники с большим количеством пакетов
+                    attack_sources = []
+                    for mac, count in self.source_counters.items():
+                        if count > 10:  # Если больше 10 пакетов за 5 секунд
+                            attack_sources.append((mac, count))
+                    
+                    # Если найдены источники атаки, включаем режим обнаружения
+                    if attack_sources:
+                        self.attack_mode_detected = True
+                        for mac, count in attack_sources:
+                            self.known_attack_sources.add(mac)
+                            logger.info(f"[ATTACK SOURCE] {mac} sent {count} packets in 5 seconds")
+                    else:
+                        # Если нет источников атаки, отключаем режим обнаружения
+                        if getattr(self, 'attack_mode_detected', False):
+                            logger.info(f"[INFO] No attack sources detected, disabling attack mode")
+                        self.attack_mode_detected = False
+                        self.known_attack_sources = set()
+                    
+                    # Сбрасываем счетчики
                     self.source_counters = {}
                     self.last_check_time = current_time
-                    logger.info(f"[INFO] Reset source counters. Known attack sources: {self.known_attack_sources}")
-
+                
                 packet_info = {
                     'src': src_mac,
                     'dst': dst_mac,
