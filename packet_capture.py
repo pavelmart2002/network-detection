@@ -174,81 +174,62 @@ class PacketCapture:
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
                 vendor = self._lookup_vendor(src_mac)
 
-                # Обнаружение DDoS/Deauth атак на основе анализа Wireshark
+                # МАКСИМАЛЬНО ПРОСТОЕ ОБНАРУЖЕНИЕ АТАК
+                # Логируем каждый пакет для отладки
+                logger.info(f"PACKET: type={pkt_type}, subtype={subtype}, src={src_mac}, dst={dst_mac}")
+                
+                # По умолчанию не атака
                 ddos_status = ''
                 
-                # Инициализация счетчиков для источников и подтипов
-                if not hasattr(self, 'source_counters'):
-                    self.source_counters = {}
-                    self.subtype_counters = {}
-                    self.last_check_time = time.time()
-                    self.attack_mode = False
-                
-                # Подсчет пакетов от каждого источника
-                if src_mac != 'Unknown':
-                    if src_mac not in self.source_counters:
-                        self.source_counters[src_mac] = 1
-                    else:
-                        self.source_counters[src_mac] += 1
-                
-                # Подсчет пакетов по подтипам
-                subtype_key = f"{pkt_type}_{subtype}"
-                if subtype_key not in self.subtype_counters:
-                    self.subtype_counters[subtype_key] = 1
-                else:
-                    self.subtype_counters[subtype_key] += 1
-                
-                # Проверка на Deauthentication пакеты (тип 0, подтип 12)
+                # Простые правила обнаружения на основе Wireshark
+                # 1. Любой пакет с типом 0 и подтипом 12 (Deauthentication)
                 if pkt_type == '0' and subtype == '12':
-                    # Это точно Deauthentication пакет - часть DDoS атаки
                     ddos_status = 'DDoS/Deauth (MDK3)'
-                    self.attack_mode = True
-                    logger.info(f"[DETECTED] Deauthentication packet from {src_mac} to {dst_mac}")
+                    logger.info(f"АТАКА: Deauthentication packet from {src_mac}")
                 
-                # Каждые 3 секунды анализируем трафик
+                # 2. Любой пакет с типом 0 и подтипом 10 (Disassociation)
+                if pkt_type == '0' and subtype == '10':
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"АТАКА: Disassociation packet from {src_mac}")
+                
+                # 3. Любой пакет с типом 0 и подтипом 1 (Association Response)
+                if pkt_type == '0' and subtype == '1':
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"АТАКА: Association Response packet from {src_mac}")
+                
+                # 4. Любой пакет с типом 0 и подтипом 0 (Association Request)
+                if pkt_type == '0' and subtype == '0':
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"АТАКА: Association Request packet from {src_mac}")
+                
+                # 5. Любой пакет с типом 0 и подтипом 11 (Authentication)
+                if pkt_type == '0' and subtype == '11':
+                    ddos_status = 'DDoS/Deauth (MDK3)'
+                    logger.info(f"АТАКА: Authentication packet from {src_mac}")
+                
+                # 6. Если от одного источника приходит много пакетов
+                if not hasattr(self, 'packet_counts'):
+                    self.packet_counts = {}
+                
+                if src_mac != 'Unknown':
+                    if src_mac not in self.packet_counts:
+                        self.packet_counts[src_mac] = 1
+                    else:
+                        self.packet_counts[src_mac] += 1
+                        
+                        # Если от одного источника больше 10 пакетов - это подозрительно
+                        if self.packet_counts[src_mac] > 10:
+                            ddos_status = 'DDoS/Deauth (MDK3)'
+                            logger.info(f"АТАКА: Too many packets from {src_mac}: {self.packet_counts[src_mac]}")
+                
+                # Сбрасываем счетчики каждые 5 секунд
                 current_time = time.time()
-                if current_time - getattr(self, 'last_check_time', 0) > 3.0:
-                    # Проверяем аномальное количество пакетов от одного источника
-                    attack_sources = []
-                    for mac, count in self.source_counters.items():
-                        if count > 20:  # Если больше 20 пакетов за 3 секунды от одного источника
-                            attack_sources.append((mac, count))
-                            logger.info(f"[STATS] High traffic source: {mac} sent {count} packets in 3 seconds")
-                    
-                    # Проверяем аномальное количество пакетов определенного подтипа
-                    for subtype_key, count in self.subtype_counters.items():
-                        logger.info(f"[STATS] Subtype {subtype_key}: {count} packets in 3 seconds")
-                    
-                    # Если есть признаки атаки, включаем режим обнаружения
-                    if attack_sources or self.attack_mode:
-                        if not getattr(self, 'attack_mode', False):
-                            logger.info(f"[ALERT] Entering attack detection mode")
-                        self.attack_mode = True
-                    
-                    # Сбрасываем счетчики
-                    self.source_counters = {}
-                    self.subtype_counters = {}
-                    self.last_check_time = current_time
-                
-                # В режиме атаки проверяем дополнительные признаки
-                if getattr(self, 'attack_mode', False):
-                    # Если много пакетов с широковещательным адресом и типом 0 - это подозрительно
-                    if dst_mac.lower() == 'ff:ff:ff:ff:ff:ff' and pkt_type == '0' and subtype not in ['8', '5', '4']:
-                        # Исключаем обычные Beacon (8) и Probe Request/Response (4/5) фреймы
-                        ddos_status = 'DDoS/Deauth (MDK3)'
-                        logger.info(f"[DETECTED] Suspicious broadcast packet from {src_mac}, type={pkt_type}, subtype={subtype}")
-                
-                # Выключаем режим атаки через 10 секунд после последнего обнаружения
-                if getattr(self, 'attack_mode', False) and not ddos_status:
-                    if not hasattr(self, 'last_attack_time'):
-                        self.last_attack_time = time.time()
-                    elif current_time - self.last_attack_time > 10.0:
-                        logger.info(f"[INFO] Exiting attack detection mode after 10 seconds of no attacks")
-                        self.attack_mode = False
-                
-                # Обновляем время последнего обнаружения атаки
-                if ddos_status:
-                    self.last_attack_time = current_time
+                if not hasattr(self, 'last_reset_time'):
+                    self.last_reset_time = current_time
+                elif current_time - self.last_reset_time > 5.0:
+                    self.packet_counts = {}
+                    self.last_reset_time = current_time
+                    logger.info("Сброс счетчиков пакетов")
 
                 packet_info = {
                     'src': src_mac,
@@ -261,8 +242,7 @@ class PacketCapture:
                     'vendor': vendor,
                     'ddos_status': ddos_status
                 }
-                # Логируем каждый пакет для отладки
-                logger.debug(f"[DEBUG] Packet info sent to GUI: {packet_info}")
+                
                 # Вызываем callback для пакета
                 if self.packet_callback:
                     self.packet_callback(packet_info)
