@@ -523,12 +523,17 @@ class MainWindow(QMainWindow):
                     status = 'normal'
                 status_item = QTableWidgetItem(str(status))
                 
-                # Устанавливаем цвет фона в зависимости от статуса
+                # Устанавливаем цвет фона и явно задаём цвет текста для тёмной темы
                 if status in self.COLORS:
                     color = self.COLORS[status]
                     for item in [timestamp_item, destination_item, protocol_item, 
                                length_item, type_item, source_item, fcs_item, status_item]:
                         item.setBackground(color)
+                        item.setForeground(QBrush(QColor('#FFA500')))
+                else:
+                    for item in [timestamp_item, destination_item, protocol_item, 
+                               length_item, type_item, source_item, fcs_item, status_item]:
+                        item.setForeground(QBrush(QColor('#FFA500')))
                 
                 # Добавляем элементы в таблицу
                 self.packets_table.setItem(row, 0, timestamp_item)
