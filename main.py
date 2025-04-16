@@ -18,6 +18,7 @@ from typing import Callable, Optional, Dict, List, Any, Tuple
 from packet_capture import PacketCapture
 from triangulation_view import TriangulationView
 from simple_triangulation_view import SimpleTriangulationView
+from circular_view import CircularView
 from packet_analyzer import PacketAnalyzer
 import logging
 import traceback
@@ -324,13 +325,19 @@ class MainWindow(QMainWindow):
     def show_triangulation_view(self):
         """Показать окно с круговой диаграммой пеленгации"""
         try:
-            # Используем улучшенную версию окна пеленгации с круговой диаграммой
+            # Используем круговую диаграмму для пеленгации
             if not self.triangulation_view:
                 logger.info("Пытаемся создать окно пеленгации...")
                 
-                # Принудительно используем SimpleTriangulationView, так как с TriangulationView возникают проблемы
-                self.triangulation_view = SimpleTriangulationView()
-                logger.info("Используется простая диаграмма пеленгации с отображением градусов")
+                # Используем новую круговую диаграмму
+                try:
+                    self.triangulation_view = CircularView()
+                    logger.info("Используется круговая диаграмма пеленгации")
+                except Exception as e:
+                    logger.error(f"Ошибка при создании круговой диаграммы: {e}", exc_info=True)
+                    # В случае ошибки используем простую версию
+                    self.triangulation_view = SimpleTriangulationView()
+                    logger.info("Используется простая диаграмма пеленгации с отображением градусов")
                 
                 # Устанавливаем флаг демонстрационного режима в зависимости от наличия реальных данных
                 has_direction_data = False
