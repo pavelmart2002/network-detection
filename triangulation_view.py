@@ -174,36 +174,54 @@ class TriangulationView(QWidget):
                 painter.setPen(QPen(QColor("#444444"), 1, Qt.DashLine))
                 painter.drawEllipse(center_x - r, center_y - r, r * 2, r * 2)
             
-            # Рисуем основные направления (компас)
+            # Рисуем градусные метки по окружности
             painter.setPen(QPen(QColor("#AAAAAA"), 1))
             font = QFont()
-            font.setPointSize(10)
+            font.setPointSize(9)
             painter.setFont(font)
             
-            # Рисуем линии направлений
-            directions = [
-                (0, "С"), (45, "СВ"), (90, "В"), (135, "ЮВ"),
-                (180, "Ю"), (225, "ЮЗ"), (270, "З"), (315, "СЗ")
-            ]
-            
-            for angle, label in directions:
+            # Рисуем градусные метки каждые 30 градусов
+            for angle in range(0, 360, 30):
                 # Преобразуем градусы в радианы
                 angle_rad = math.radians(angle)
                 
-                # Рисуем линию от центра к краю
-                line_end_x = center_x + radius * math.sin(angle_rad)
-                line_end_y = center_y - radius * math.cos(angle_rad)
+                # Рисуем линию от внешнего круга внутрь
+                outer_x = center_x + (radius + 5) * math.sin(angle_rad)
+                outer_y = center_y - (radius + 5) * math.cos(angle_rad)
+                
+                inner_x = center_x + (radius - 10) * math.sin(angle_rad)
+                inner_y = center_y - (radius - 10) * math.cos(angle_rad)
                 
                 # Рисуем линию
                 painter.setPen(QPen(QColor("#555555"), 1))
-                painter.drawLine(center_x, center_y, int(line_end_x), int(line_end_y))
+                painter.drawLine(int(outer_x), int(outer_y), int(inner_x), int(inner_y))
                 
-                # Рисуем метку
-                text_x = center_x + (radius + 15) * math.sin(angle_rad) - 10
-                text_y = center_y - (radius + 15) * math.cos(angle_rad) + 5
+                # Рисуем текст с градусами
+                text_x = center_x + (radius + 20) * math.sin(angle_rad) - 15
+                text_y = center_y - (radius + 20) * math.cos(angle_rad) + 5
                 
                 painter.setPen(QPen(QColor("#AAAAAA"), 1))
-                painter.drawText(int(text_x), int(text_y), label)
+                painter.drawText(int(text_x), int(text_y), f"{angle}°")
+            
+            # Рисуем меньшие метки каждые 10 градусов
+            for angle in range(0, 360, 10):
+                # Пропускаем те, которые уже нарисованы каждые 30 градусов
+                if angle % 30 == 0:
+                    continue
+                    
+                # Преобразуем градусы в радианы
+                angle_rad = math.radians(angle)
+                
+                # Рисуем короткую линию
+                outer_x = center_x + (radius + 2) * math.sin(angle_rad)
+                outer_y = center_y - (radius + 2) * math.cos(angle_rad)
+                
+                inner_x = center_x + (radius - 5) * math.sin(angle_rad)
+                inner_y = center_y - (radius - 5) * math.cos(angle_rad)
+                
+                # Рисуем линию
+                painter.setPen(QPen(QColor("#444444"), 1))
+                painter.drawLine(int(outer_x), int(outer_y), int(inner_x), int(inner_y))
             
             # Если есть направление, рисуем луч
             if self.direction is not None:
@@ -244,6 +262,18 @@ class TriangulationView(QWidget):
                 
                 painter.drawPath(arrow_path)
                 
+                # Рисуем текст с точным значением градусов в центре
+                painter.setPen(QPen(QColor("#FFFFFF"), 1))
+                font = QFont()
+                font.setPointSize(14)
+                font.setBold(True)
+                painter.setFont(font)
+                
+                # Отображаем точное значение градусов
+                angle_text = f"{self.direction}°"
+                text_rect = QRect(center_x - 40, center_y + radius + 10, 80, 30)
+                painter.drawText(text_rect, Qt.AlignCenter, angle_text)
+                
                 # Рисуем индикатор мощности сигнала
                 signal_radius = 20
                 signal_x = center_x - signal_radius
@@ -271,6 +301,8 @@ class TriangulationView(QWidget):
                 
                 # Текст с процентами
                 painter.setPen(QPen(QColor("#FFFFFF"), 1))
+                font.setPointSize(9)
+                painter.setFont(font)
                 painter.drawText(signal_x + 5, signal_y + signal_radius - 5, f"{self.signal_strength}%")
                 
                 # Рисуем центральную точку
