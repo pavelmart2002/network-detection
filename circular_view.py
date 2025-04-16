@@ -46,6 +46,11 @@ class CircularView(QWidget):
         self.info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.info_label)
         
+        # Добавляем виджет для рисования диаграммы
+        self.diagram_widget = CircleDiagramWidget(self)
+        self.diagram_widget.setMinimumHeight(300)
+        layout.addWidget(self.diagram_widget)
+        
         # Таймер для обновления
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_view)
@@ -65,7 +70,7 @@ class CircularView(QWidget):
     
     def update_view(self):
         """Обновление отображения"""
-        self.update()  # Перерисовка виджета
+        self.diagram_widget.update()  # Перерисовка виджета диаграммы
     
     def update_demo(self):
         """Обновление демонстрационного режима"""
@@ -132,11 +137,24 @@ class CircularView(QWidget):
         else:
             self.info_label.setText("Ожидание данных...")
         
+        # Обновляем данные в виджете диаграммы
+        self.diagram_widget.direction = self.direction
+        self.diagram_widget.signal_strength = self.signal_strength
+        
         # Логируем для отладки
         logger.info(f"Установлено направление: {direction_text}, градусы: {self.direction}")
         
         # Перерисовываем виджет
         self.update()
+
+
+class CircleDiagramWidget(QWidget):
+    """Виджет для отрисовки круговой диаграммы"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.direction = None
+        self.signal_strength = 0
     
     def paintEvent(self, event):
         """Отрисовка круговой диаграммы с направлением"""
