@@ -328,7 +328,7 @@ class PacketCapture:
                     # 1. Обнаружение атаки на основе сигнатур
                     signature_attack, signature_confidence = self._detect_attack_by_signature(src_mac, pkt_type, subtype)
                     
-                    # 2. Обнаружение атаки на основе статистического анализа
+                    # 2. Обнаружение атаки на основе статистического анализа (временно отключено для отладки ложных срабатываний)
                     statistical_attack, statistical_confidence = self._detect_attack_by_statistics(src_mac, pkt_type, subtype, dst_mac)
                     
                     # Выбираем результат с наибольшей уверенностью
@@ -454,6 +454,11 @@ class PacketCapture:
         return attack_detected, confidence
 
     def _detect_attack_by_statistics(self, src_mac, pkt_type, subtype, dst_mac):
+        """Обнаружение атаки на основе статистического анализа (временно отключено для отладки ложных срабатываний)"""
+        # Временно возвращаем отсутствие атаки, чтобы проверить только сигнатурные методы
+        return None, 0.0
+
+    def _detect_attack_by_statistics_original(self, src_mac, pkt_type, subtype, dst_mac):
         """Обнаружение атаки на основе статистического анализа"""
         current_time = time.time()
         attack_detected = None
