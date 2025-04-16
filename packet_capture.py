@@ -76,40 +76,40 @@ class PacketCapture:
                     'description': 'Deauthentication Attack',
                     'type': '0',
                     'subtypes': ['12'],
-                    'min_count': 3,
-                    'time_window': 3.0,
+                    'min_count': 5,  # Увеличиваем с 3 до 5
+                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
                     'confidence': 0.9
                 },
                 'disassoc': {
                     'description': 'Disassociation Attack',
                     'type': '0',
                     'subtypes': ['10'],
-                    'min_count': 3,
-                    'time_window': 3.0,
+                    'min_count': 5,  # Увеличиваем с 3 до 5
+                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
                     'confidence': 0.8
                 },
                 'auth_flood': {
                     'description': 'Authentication Flood',
                     'type': '0',
                     'subtypes': ['11'],
-                    'min_count': 5,
-                    'time_window': 3.0,
+                    'min_count': 10,  # Увеличиваем с 5 до 10
+                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
                     'confidence': 0.7
                 },
                 'assoc_flood': {
                     'description': 'Association Flood',
                     'type': '0',
                     'subtypes': ['0', '1'],
-                    'min_count': 5,
-                    'time_window': 3.0,
+                    'min_count': 10,  # Увеличиваем с 5 до 10
+                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
                     'confidence': 0.7
                 },
                 'beacon_flood': {
                     'description': 'Beacon Flood',
                     'type': '0',
                     'subtypes': ['8'],
-                    'min_count': 50,
-                    'time_window': 5.0,
+                    'min_count': 100,  # Увеличиваем с 50 до 100
+                    'time_window': 3.0,  # Уменьшаем окно с 5.0 до 3.0
                     'confidence': 0.6
                 }
             }
@@ -309,19 +309,40 @@ class PacketCapture:
                 ddos_status = ''
                 confidence = 0.0
                 
-                # 1. Обнаружение атаки на основе сигнатур
-                signature_attack, signature_confidence = self._detect_attack_by_signature(src_mac, pkt_type, subtype)
+                # Игнорируем служебные пакеты и пакеты от известных производителей сетевого оборудования
+                # (для уменьшения ложных срабатываний)
+                ignore_detection = False
                 
-                # 2. Обнаружение атаки на основе статистического анализа
-                statistical_attack, statistical_confidence = self._detect_attack_by_statistics(src_mac, pkt_type, subtype, dst_mac)
+                # Список известных производителей сетевого оборудования (их пакеты обычно не являются атаками)
+                trusted_vendors = ['Cisco', 'Aruba', 'Ubiquiti', 'Ruckus', 'Mikrotik', 'TP-Link', 'D-Link', 'Netgear']
                 
-                # Выбираем результат с наибольшей уверенностью
-                if signature_attack and (not statistical_attack or signature_confidence >= statistical_confidence):
-                    ddos_status = signature_attack
-                    confidence = signature_confidence
-                elif statistical_attack:
-                    ddos_status = statistical_attack
-                    confidence = statistical_confidence
+                # Игнорируем пакеты от доверенных производителей
+                if vendor in trusted_vendors:
+                    ignore_detection = True
+                    
+                # Игнорируем Beacon-фреймы (тип 0, подтип 8) - они не являются атаками
+                if pkt_type == '0' and subtype == '8':
+                    ignore_detection = True
+                
+                if not ignore_detection:
+                    # 1. Обнаружение атаки на основе сигнатур
+                    signature_attack, signature_confidence = self._detect_attack_by_signature(src_mac, pkt_type, subtype)
+                    
+                    # 2. Обнаружение атаки на основе статистического анализа
+                    statistical_attack, statistical_confidence = self._detect_attack_by_statistics(src_mac, pkt_type, subtype, dst_mac)
+                    
+                    # Выбираем результат с наибольшей уверенностью
+                    if signature_attack and (not statistical_attack or signature_confidence >= statistical_confidence):
+                        ddos_status = signature_attack
+                        confidence = signature_confidence
+                    elif statistical_attack:
+                        ddos_status = statistical_attack
+                        confidence = statistical_confidence
+                    
+                    # Дополнительная фильтрация: отбрасываем результаты с низкой уверенностью
+                    if confidence < 0.6:
+                        ddos_status = ''
+                        confidence = 0.0
                 
                 # Очистка устаревшей статистики
                 self._cleanup_statistics()
@@ -354,6 +375,10 @@ class PacketCapture:
         attack_detected = None
         confidence = 0.0
         
+        # Игнорируем широковещательные и специальные MAC-адреса
+        if src_mac in self.BROADCAST_MAC or src_mac == 'Unknown':
+            return None, 0.0
+        
         # Проверяем каждую сигнатуру
         for attack_name, signature in self.attack_signatures.items():
             if pkt_type == signature['type'] and subtype in signature['subtypes']:
@@ -366,7 +391,8 @@ class PacketCapture:
                         'count': 0,
                         'first_seen': current_time,
                         'last_seen': current_time,
-                        'packets': []
+                        'packets': [],
+                        'unique_destinations': set()  # Добавляем отслеживание уникальных получателей
                     }
                 
                 # Обновляем статистику
@@ -376,24 +402,52 @@ class PacketCapture:
                 
                 # Сохраняем информацию о пакете (не более 20 пакетов для экономии памяти)
                 if len(stats['packets']) < 20:
-                    stats['packets'].append({
+                    packet_info = {
                         'type': pkt_type,
                         'subtype': subtype,
                         'time': current_time
-                    })
+                    }
+                    stats['packets'].append(packet_info)
                 
                 # Проверяем, превышен ли порог для этой сигнатуры
                 time_diff = current_time - stats['first_seen']
+                
+                # Минимальное время наблюдения перед принятием решения (для уменьшения ложных срабатываний)
+                if time_diff < 1.0:
+                    continue
+                
                 if (time_diff <= signature['time_window'] and 
                     stats['count'] >= signature['min_count']):
                     
+                    # Вычисляем частоту пакетов для этой сигнатуры
+                    packet_rate = stats['count'] / time_diff
+                    
+                    # Дополнительная проверка для сигнатур deauth и disassoc
+                    if attack_name in ['deauth', 'disassoc']:
+                        # Для деаутентификации и диссоциации важна высокая частота
+                        if packet_rate < 2.0:  # Менее 2 пакетов в секунду - не атака
+                            continue
+                    
+                    # Для beacon flood нужно много разных BSSID
+                    if attack_name == 'beacon_flood' and len(stats['unique_destinations']) < 10:
+                        continue
+                    
                     # Если обнаружено несколько атак, выбираем ту, у которой выше уверенность
-                    if attack_detected is None or signature['confidence'] > confidence:
+                    adjusted_confidence = signature['confidence']
+                    
+                    # Корректируем уверенность в зависимости от частоты пакетов
+                    if packet_rate > 10.0:
+                        adjusted_confidence = min(adjusted_confidence + 0.1, 0.95)
+                    elif packet_rate < 3.0:
+                        adjusted_confidence = max(adjusted_confidence - 0.2, 0.3)
+                    
+                    if attack_detected is None or adjusted_confidence > confidence:
                         attack_detected = signature['description']
-                        confidence = signature['confidence']
+                        confidence = adjusted_confidence
                         
                         logger.info(f"АТАКА: {attack_detected} от {src_mac}, "
                                    f"пакетов: {stats['count']}, "
+                                   f"частота: {packet_rate:.2f} пакетов/сек, "
                                    f"за {time_diff:.2f} сек, "
                                    f"уверенность: {confidence:.2f}")
         
@@ -405,6 +459,14 @@ class PacketCapture:
         attack_detected = None
         confidence = 0.0
         
+        # Игнорируем широковещательные и специальные MAC-адреса
+        if src_mac in self.BROADCAST_MAC or src_mac == 'Unknown':
+            return None, 0.0
+            
+        # Игнорируем служебные пакеты управления (beacon, probe, etc.)
+        if pkt_type == '0' and subtype == '8':  # Beacon frames
+            return None, 0.0
+            
         # Инициализируем статистику для этого MAC-адреса, если её еще нет
         if src_mac not in self.packet_stats:
             self.packet_stats[src_mac] = {
@@ -413,11 +475,21 @@ class PacketCapture:
                 'last_seen': current_time,
                 'packet_rate': 0.0,
                 'packet_types': {},
-                'destinations': {}
+                'destinations': {},
+                'min_time_between_packets': float('inf'),
+                'last_packet_time': current_time
             }
         
         # Обновляем общую статистику
         stats = self.packet_stats[src_mac]
+        
+        # Вычисляем минимальное время между пакетами (для обнаружения автоматизированных атак)
+        if stats['total_packets'] > 0:
+            time_between = current_time - stats.get('last_packet_time', 0)
+            if time_between > 0:  # Защита от нулевого интервала
+                stats['min_time_between_packets'] = min(stats['min_time_between_packets'], time_between)
+        
+        stats['last_packet_time'] = current_time
         stats['total_packets'] += 1
         stats['last_seen'] = current_time
         
@@ -437,31 +509,38 @@ class PacketCapture:
         if time_diff > 0:
             stats['packet_rate'] = stats['total_packets'] / time_diff
         
+        # Минимальное время наблюдения перед принятием решения (для уменьшения ложных срабатываний)
+        if time_diff < 2.0 or stats['total_packets'] < 15:
+            return None, 0.0
+            
         # Анализируем статистику для обнаружения атак
         
-        # 1. Высокая частота пакетов
-        if stats['packet_rate'] > 20.0:  # Более 20 пакетов в секунду
-            attack_detected = "Flood Attack (High packet rate)"
-            confidence = min(0.5 + (stats['packet_rate'] - 20.0) / 100.0, 0.9)
-            logger.info(f"АТАКА: Высокая частота пакетов от {src_mac}: "
-                       f"{stats['packet_rate']:.2f} пакетов/сек, "
-                       f"уверенность: {confidence:.2f}")
+        # 1. Высокая частота пакетов (повышаем порог до 50 пакетов/сек)
+        if stats['packet_rate'] > 50.0 and stats['total_packets'] > 30:
+            # Дополнительная проверка на равномерность интервалов (признак автоматизированной атаки)
+            if stats['min_time_between_packets'] < 0.02:  # Менее 20 мс между пакетами
+                attack_detected = "Flood Attack (High packet rate)"
+                confidence = min(0.5 + (stats['packet_rate'] - 50.0) / 100.0, 0.9)
+                logger.info(f"АТАКА: Высокая частота пакетов от {src_mac}: "
+                           f"{stats['packet_rate']:.2f} пакетов/сек, "
+                           f"мин. интервал: {stats['min_time_between_packets']:.4f} сек, "
+                           f"уверенность: {confidence:.2f}")
         
-        # 2. Много пакетов одного типа
+        # 2. Много пакетов одного типа (повышаем порог до 25 пакетов)
         for type_key, count in stats['packet_types'].items():
-            if count > 10 and count / stats['total_packets'] > 0.8:
+            if count > 25 and count / stats['total_packets'] > 0.9 and stats['total_packets'] > 30:
                 attack_detected = f"Flood Attack (Type {type_key})"
-                confidence = min(0.6 + (count - 10) / 50.0, 0.9)
+                confidence = min(0.6 + (count - 25) / 50.0, 0.9)
                 logger.info(f"АТАКА: Много пакетов типа {type_key} от {src_mac}: "
                            f"{count} пакетов, "
                            f"уверенность: {confidence:.2f}")
                 break
         
-        # 3. Много пакетов на широковещательный адрес
+        # 3. Много пакетов на широковещательный адрес (повышаем порог до 15 пакетов)
         for dest, count in stats['destinations'].items():
-            if dest in self.BROADCAST_MAC and count > 5:
+            if dest in self.BROADCAST_MAC and count > 15 and stats['total_packets'] > 20:
                 attack_detected = "Broadcast Flood Attack"
-                confidence = min(0.7 + (count - 5) / 20.0, 0.9)
+                confidence = min(0.7 + (count - 15) / 20.0, 0.9)
                 logger.info(f"АТАКА: Широковещательная атака от {src_mac}: "
                            f"{count} пакетов, "
                            f"уверенность: {confidence:.2f}")
