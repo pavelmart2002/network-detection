@@ -54,7 +54,7 @@ class DirectionIndicator(QFrame):
         # Текущее активное направление
         self.active_direction = None
     
-    def set_direction(self, direction):
+    def set_direction(self, direction, signal_strength=50):
         """Установка активного направления"""
         # Сбрасываем предыдущее активное направление
         if self.active_direction and self.active_direction in self.direction_blocks:
@@ -92,10 +92,14 @@ class SimpleTriangulationView(QWidget):
                 font-weight: bold;
                 font-size: 14px;
             }
-            QFrame {
-                border: 1px solid #555555;
-            }
         """)
+        
+        # Инициализация переменных
+        self.direction = None  # Направление на источник
+        self.direction_degrees = None  # Направление в градусах
+        self.signal_strength = 0  # Мощность сигнала (0-100%)
+        self.source_mac = ""  # MAC-адрес источника
+        self.attack_type = ""  # Тип атаки
         
         # Создаем layout
         layout = QVBoxLayout(self)
@@ -105,14 +109,20 @@ class SimpleTriangulationView(QWidget):
         self.info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.info_label)
         
-        # Индикатор направления
+        # Виджет для отображения направления
         self.direction_indicator = DirectionIndicator()
         layout.addWidget(self.direction_indicator)
         
-        # Инициализация переменных
-        self.source_mac = ""  # MAC-адрес источника
-        self.attack_type = ""  # Тип атаки
-        self.signal_strength = 0  # Мощность сигнала (0-100%)
+        # Метка для отображения градусов
+        self.degrees_label = QLabel("")
+        self.degrees_label.setAlignment(Qt.AlignCenter)
+        self.degrees_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #FF6E00;")
+        layout.addWidget(self.degrees_label)
+        
+        # Таймер для обновления
+        self.update_timer = QTimer(self)
+        self.update_timer.timeout.connect(self.update_view)
+        self.update_timer.start(100)  # Обновление каждые 100 мс
         
         # Таймер для демонстрационного режима
         self.demo_timer = QTimer(self)
@@ -122,14 +132,17 @@ class SimpleTriangulationView(QWidget):
         # Флаг демонстрационного режима
         self.demo_mode = True
         self.demo_direction_index = 0
-        self.demo_directions = ["Запад", "Северо-запад", "Север", "Северо-восток", 
-                               "Восток", "Юго-восток", "Юг", "Юго-запад"]
+        self.demo_directions = ["Слева", "Справа", "Прямо впереди", "Северо-восток", "Северо-запад", "Юго-восток", "Юго-запад", "Сзади"]
         
         logger.info("SimpleTriangulationView initialized")
     
+    def update_view(self):
+        """Обновление отображения"""
+        self.update()  # Перерисовка виджета
+    
     def update_demo(self):
         """Обновление демонстрационного режима"""
-        if self.demo_mode:
+        if self.demo_mode and not self.direction:
             # Циклически меняем направление
             direction = self.demo_directions[self.demo_direction_index]
             self.demo_direction_index = (self.demo_direction_index + 1) % len(self.demo_directions)
@@ -148,7 +161,7 @@ class SimpleTriangulationView(QWidget):
         """Установка направления на источник
         
         Args:
-            direction_text (str): Текстовое направление
+            direction_text (str): Текстовое направление ("Слева", "Справа", "Прямо впереди" и т.д.)
             signal_strength (int): Мощность сигнала (0-100%)
             mac (str): MAC-адрес источника
             attack_type (str): Тип атаки
@@ -157,17 +170,28 @@ class SimpleTriangulationView(QWidget):
         if mac and mac != "00:11:22:33:44:55":
             self.demo_mode = False
         
-        # Преобразуем направление из формата "Слева"/"Справа" в формат компаса
-        compass_direction = direction_text
-        if direction_text == "Слева":
-            compass_direction = "Запад"
-        elif direction_text == "Справа":
-            compass_direction = "Восток"
-        elif direction_text == "Прямо впереди":
-            compass_direction = "Север"
+        # Сохраняем направление
+        self.direction = direction_text
         
-        # Устанавливаем направление в индикаторе
-        self.direction_indicator.set_direction(compass_direction)
+        # Преобразуем текстовое направление в градусы
+        if direction_text == "Слева":
+            self.direction_degrees = 270  # 270 градусов (9:00 на часах)
+        elif direction_text == "Справа":
+            self.direction_degrees = 90   # 90 градусов (3:00 на часах)
+        elif direction_text == "Прямо впереди":
+            self.direction_degrees = 0    # 0 градусов (12:00 на часах)
+        elif direction_text == "Северо-восток":
+            self.direction_degrees = 45   # 45 градусов (1:30 на часах)
+        elif direction_text == "Северо-запад":
+            self.direction_degrees = 315  # 315 градусов (10:30 на часах)
+        elif direction_text == "Юго-восток":
+            self.direction_degrees = 135  # 135 градусов (4:30 на часах)
+        elif direction_text == "Юго-запад":
+            self.direction_degrees = 225  # 225 градусов (7:30 на часах)
+        elif direction_text == "Сзади":
+            self.direction_degrees = 180  # 180 градусов (6:00 на часах)
+        else:
+            self.direction_degrees = None
         
         # Сохраняем остальные параметры
         self.signal_strength = min(100, max(0, signal_strength))
@@ -175,11 +199,26 @@ class SimpleTriangulationView(QWidget):
         self.attack_type = attack_type
         
         # Обновляем информационную метку
-        info_text = f"Источник: {self.source_mac}\n"
-        info_text += f"Тип атаки: {self.attack_type}\n"
-        info_text += f"Направление: {direction_text} ({compass_direction})\n"
-        info_text += f"Мощность сигнала: {self.signal_strength}%"
-        self.info_label.setText(info_text)
+        if self.direction is not None:
+            info_text = f"Источник: {self.source_mac}\n"
+            info_text += f"Тип атаки: {self.attack_type}\n"
+            info_text += f"Направление: {self.direction}\n"
+            info_text += f"Мощность сигнала: {self.signal_strength}%"
+            self.info_label.setText(info_text)
+        else:
+            self.info_label.setText("Ожидание данных...")
+        
+        # Обновляем метку с градусами
+        if self.direction_degrees is not None:
+            self.degrees_label.setText(f"{self.direction_degrees}°")
+        else:
+            self.degrees_label.setText("")
+        
+        # Обновляем индикатор направления
+        self.direction_indicator.set_direction(direction_text, self.signal_strength)
         
         # Логируем для отладки
-        logger.info(f"Установлено направление: {direction_text} ({compass_direction})")
+        logger.info(f"Установлено направление: {direction_text}, градусы: {self.direction_degrees}")
+        
+        # Перерисовываем виджет
+        self.update()
