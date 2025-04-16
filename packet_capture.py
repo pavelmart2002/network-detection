@@ -76,24 +76,24 @@ class PacketCapture:
                     'description': 'Deauthentication Attack',
                     'type': '0',
                     'subtypes': ['12'],
-                    'min_count': 5,  # Увеличиваем с 3 до 5
-                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
+                    'min_count': 3,  # Было 5, уменьшаем для чувствительности
+                    'time_window': 2.0,  # Оставляем 2 секунды
                     'confidence': 0.9
                 },
                 'disassoc': {
                     'description': 'Disassociation Attack',
                     'type': '0',
                     'subtypes': ['10'],
-                    'min_count': 5,  # Увеличиваем с 3 до 5
-                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
+                    'min_count': 3,  # Было 5, уменьшаем
+                    'time_window': 2.0,
                     'confidence': 0.8
                 },
                 'auth_flood': {
                     'description': 'Authentication Flood',
                     'type': '0',
                     'subtypes': ['11'],
-                    'min_count': 10,  # Увеличиваем с 5 до 10
-                    'time_window': 2.0,  # Уменьшаем окно с 3.0 до 2.0
+                    'min_count': 7,  # Было 10, уменьшаем
+                    'time_window': 2.0,
                     'confidence': 0.7
                 },
                 'assoc_flood': {
@@ -250,6 +250,10 @@ class PacketCapture:
                 fcs = str(getattr(packet, 'fcs', '')) if hasattr(packet, 'fcs') else 'Unknown'
                 vendor = self._lookup_vendor(src_mac)
                 
+                # Логируем каждый management frame для отладки
+                if pkt_type == '0':
+                    logger.debug(f"Management frame: subtype={subtype}, src={src_mac}, dst={dst_mac}")
+                
                 # Получаем RSSI (мощность сигнала) для пеленгации
                 rssi = None
                 if hasattr(packet, 'dBm_AntSignal'):
@@ -328,7 +332,7 @@ class PacketCapture:
                     # 1. Обнаружение атаки на основе сигнатур
                     signature_attack, signature_confidence = self._detect_attack_by_signature(src_mac, pkt_type, subtype)
                     
-                    # 2. Обнаружение атаки на основе статистического анализа (временно отключено для отладки ложных срабатываний)
+                    # 2. Обнаружение атаки на основе статистического анализа
                     statistical_attack, statistical_confidence = self._detect_attack_by_statistics(src_mac, pkt_type, subtype, dst_mac)
                     
                     # Выбираем результат с наибольшей уверенностью
@@ -454,11 +458,6 @@ class PacketCapture:
         return attack_detected, confidence
 
     def _detect_attack_by_statistics(self, src_mac, pkt_type, subtype, dst_mac):
-        """Обнаружение атаки на основе статистического анализа (временно отключено для отладки ложных срабатываний)"""
-        # Временно возвращаем отсутствие атаки, чтобы проверить только сигнатурные методы
-        return None, 0.0
-
-    def _detect_attack_by_statistics_original(self, src_mac, pkt_type, subtype, dst_mac):
         """Обнаружение атаки на основе статистического анализа"""
         current_time = time.time()
         attack_detected = None
