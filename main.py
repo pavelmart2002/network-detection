@@ -326,14 +326,11 @@ class MainWindow(QMainWindow):
         try:
             # Используем улучшенную версию окна пеленгации с круговой диаграммой
             if not self.triangulation_view:
-                try:
-                    # Пробуем использовать улучшенную версию с круговой диаграммой
-                    self.triangulation_view = TriangulationView()
-                    logger.info("Используется улучшенная круговая диаграмма пеленгации")
-                except Exception as e:
-                    # В случае ошибки (например, на устройствах с ограниченной графикой) используем простую версию
-                    logger.warning(f"Не удалось создать улучшенную диаграмму: {e}, используем простую версию")
-                    self.triangulation_view = SimpleTriangulationView()
+                logger.info("Пытаемся создать окно пеленгации...")
+                
+                # Принудительно используем SimpleTriangulationView, так как с TriangulationView возникают проблемы
+                self.triangulation_view = SimpleTriangulationView()
+                logger.info("Используется простая диаграмма пеленгации с отображением градусов")
                 
                 # Устанавливаем флаг демонстрационного режима в зависимости от наличия реальных данных
                 has_direction_data = False
