@@ -262,8 +262,9 @@ class MainWindow(QMainWindow):
         
         # Таблица пакетов
         self.packet_table = QTableWidget()
-        self.packet_table.setColumnCount(10)  # Добавили колонку для RSSI и направления
-        self.packet_table.setHorizontalHeaderLabels(["Источник", "Назначение", "Протокол", "Тип", "Подтип", "Длина", "FCS", "Производитель", "Статус", "Направление"])
+        self.packet_table.setColumnCount(11)  # Добавили колонку для уровня уверенности
+        self.packet_table.setHorizontalHeaderLabels(["Источник", "Назначение", "Протокол", "Тип", "Подтип", 
+                                                    "Длина", "FCS", "Производитель", "Статус", "Уверенность", "Направление"])
         self.packet_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.packet_table.verticalHeader().setVisible(False)
         self.packet_table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -530,6 +531,17 @@ class MainWindow(QMainWindow):
                     
                     self.packet_table.setItem(row, 8, status_item)
                     
+                    # Уверенность в обнаружении атаки
+                    confidence = packet.get('confidence', '')
+                    confidence_item = QTableWidgetItem(confidence)
+                    
+                    # Выделяем желтым, если уверенность высокая
+                    if confidence:
+                        confidence_item.setBackground(QColor(255, 255, 0, 100))
+                        confidence_item.setForeground(QColor(0, 0, 0))
+                    
+                    self.packet_table.setItem(row, 9, confidence_item)
+                    
                     # Направление на источник (для пеленгации)
                     direction = packet.get('direction', '')
                     direction_item = QTableWidgetItem(direction)
@@ -539,7 +551,7 @@ class MainWindow(QMainWindow):
                         direction_item.setBackground(QColor(0, 255, 0, 100))
                         direction_item.setForeground(QColor(0, 0, 0))
                     
-                    self.packet_table.setItem(row, 9, direction_item)
+                    self.packet_table.setItem(row, 10, direction_item)
             
             # Прокручиваем к последней строке
             self.packet_table.scrollToBottom()
@@ -564,10 +576,17 @@ class MainWindow(QMainWindow):
                 rssi = packet_info.get('rssi', 0)
                 src_mac = packet_info.get('src', '')
                 ddos_status = packet_info.get('ddos_status', '')
+                confidence = packet_info.get('confidence', None)
+                
+                # Форматируем информацию об атаке с уровнем уверенности
+                attack_info = ddos_status
+                if confidence:
+                    confidence_percent = int(confidence * 100)
+                    attack_info = f"{ddos_status} ({confidence_percent}%)"
                 
                 # Логируем для отладки
                 if direction:
-                    logger.info(f"НАПРАВЛЕНИЕ: {direction}, RSSI: {rssi}, MAC: {src_mac}, Статус: {ddos_status}")
+                    logger.info(f"НАПРАВЛЕНИЕ: {direction}, RSSI: {rssi}, MAC: {src_mac}, Статус: {attack_info}")
                 
                 # Преобразуем RSSI в процент мощности сигнала (обычно RSSI от -100 до 0 дБм)
                 if rssi:
@@ -583,7 +602,7 @@ class MainWindow(QMainWindow):
                             direction,
                             signal_strength,
                             src_mac,
-                            ddos_status if ddos_status else "Обычный пакет"
+                            attack_info if ddos_status else "Обычный пакет"
                         )
                         logger.info(f"Направление установлено в окне пеленгации: {direction}")
                     except Exception as e:

@@ -63,6 +63,57 @@ class PacketCapture:
             self.error_callback = None
             self.interfaces = []
             
+            # Структуры данных для улучшенного обнаружения атак
+            self.packet_stats = {}  # Статистика по пакетам для каждого MAC-адреса
+            self.deauth_counts = {}  # Счетчики деаутентификационных пакетов
+            self.attack_threshold = 10  # Порог для определения атаки (настраиваемый)
+            self.time_window = 5.0  # Временное окно для анализа (в секундах)
+            self.last_cleanup_time = time.time()  # Время последней очистки статистики
+            
+            # Сигнатуры известных атак
+            self.attack_signatures = {
+                'deauth': {
+                    'description': 'Deauthentication Attack',
+                    'type': '0',
+                    'subtypes': ['12'],
+                    'min_count': 3,
+                    'time_window': 3.0,
+                    'confidence': 0.9
+                },
+                'disassoc': {
+                    'description': 'Disassociation Attack',
+                    'type': '0',
+                    'subtypes': ['10'],
+                    'min_count': 3,
+                    'time_window': 3.0,
+                    'confidence': 0.8
+                },
+                'auth_flood': {
+                    'description': 'Authentication Flood',
+                    'type': '0',
+                    'subtypes': ['11'],
+                    'min_count': 5,
+                    'time_window': 3.0,
+                    'confidence': 0.7
+                },
+                'assoc_flood': {
+                    'description': 'Association Flood',
+                    'type': '0',
+                    'subtypes': ['0', '1'],
+                    'min_count': 5,
+                    'time_window': 3.0,
+                    'confidence': 0.7
+                },
+                'beacon_flood': {
+                    'description': 'Beacon Flood',
+                    'type': '0',
+                    'subtypes': ['8'],
+                    'min_count': 50,
+                    'time_window': 5.0,
+                    'confidence': 0.6
+                }
+            }
+            
             logger.info(f"Initialized with interface: {self.current_interface}")
             
         except Exception as e:
@@ -254,63 +305,28 @@ class PacketCapture:
                     direction = self._calculate_direction_combined(src_mac)
                     logger.info(f"Вычислено направление для {src_mac}: {direction}")
 
-                # МАКСИМАЛЬНО ПРОСТОЕ ОБНАРУЖЕНИЕ АТАК
-                # Логируем каждый пакет для отладки
-                logger.info(f"PACKET: type={pkt_type}, subtype={subtype}, src={src_mac}, dst={dst_mac}, rssi={rssi}, direction={direction}")
-                
-                # По умолчанию не атака
+                # Улучшенное обнаружение атак
                 ddos_status = ''
+                confidence = 0.0
                 
-                # Простые правила обнаружения на основе Wireshark
-                # 1. Любой пакет с типом 0 и подтипом 12 (Deauthentication)
-                if pkt_type == '0' and subtype == '12':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"АТАКА: Deauthentication packet from {src_mac}")
+                # 1. Обнаружение атаки на основе сигнатур
+                signature_attack, signature_confidence = self._detect_attack_by_signature(src_mac, pkt_type, subtype)
                 
-                # 2. Любой пакет с типом 0 и подтипом 10 (Disassociation)
-                if pkt_type == '0' and subtype == '10':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"АТАКА: Disassociation packet from {src_mac}")
+                # 2. Обнаружение атаки на основе статистического анализа
+                statistical_attack, statistical_confidence = self._detect_attack_by_statistics(src_mac, pkt_type, subtype, dst_mac)
                 
-                # 3. Любой пакет с типом 0 и подтипом 1 (Association Response)
-                if pkt_type == '0' and subtype == '1':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"АТАКА: Association Response packet from {src_mac}")
+                # Выбираем результат с наибольшей уверенностью
+                if signature_attack and (not statistical_attack or signature_confidence >= statistical_confidence):
+                    ddos_status = signature_attack
+                    confidence = signature_confidence
+                elif statistical_attack:
+                    ddos_status = statistical_attack
+                    confidence = statistical_confidence
                 
-                # 4. Любой пакет с типом 0 и подтипом 0 (Association Request)
-                if pkt_type == '0' and subtype == '0':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"АТАКА: Association Request packet from {src_mac}")
+                # Очистка устаревшей статистики
+                self._cleanup_statistics()
                 
-                # 5. Любой пакет с типом 0 и подтипом 11 (Authentication)
-                if pkt_type == '0' and subtype == '11':
-                    ddos_status = 'DDoS/Deauth (MDK3)'
-                    logger.info(f"АТАКА: Authentication packet from {src_mac}")
-                
-                # 6. Если от одного источника приходит много пакетов
-                if not hasattr(self, 'packet_counts'):
-                    self.packet_counts = {}
-                
-                if src_mac != 'Unknown':
-                    if src_mac not in self.packet_counts:
-                        self.packet_counts[src_mac] = 1
-                    else:
-                        self.packet_counts[src_mac] += 1
-                        
-                        # Если от одного источника больше 10 пакетов - это подозрительно
-                        if self.packet_counts[src_mac] > 10:
-                            ddos_status = 'DDoS/Deauth (MDK3)'
-                            logger.info(f"АТАКА: Too many packets from {src_mac}: {self.packet_counts[src_mac]}")
-                
-                # Сбрасываем счетчики каждые 5 секунд
-                current_time = time.time()
-                if not hasattr(self, 'last_reset_time'):
-                    self.last_reset_time = current_time
-                elif current_time - self.last_reset_time > 5.0:
-                    self.packet_counts = {}
-                    self.last_reset_time = current_time
-                    logger.info("Сброс счетчиков пакетов")
-
+                # Формируем информацию о пакете для GUI
                 packet_info = {
                     'src': src_mac,
                     'dst': dst_mac,
@@ -321,6 +337,7 @@ class PacketCapture:
                     'fcs': fcs,
                     'vendor': vendor,
                     'ddos_status': ddos_status,
+                    'confidence': confidence if confidence > 0 else None,
                     'rssi': rssi,
                     'direction': direction
                 }
@@ -331,6 +348,148 @@ class PacketCapture:
         except Exception as e:
             logger.error(f"Error processing packet: {e}", exc_info=True)
             
+    def _detect_attack_by_signature(self, src_mac, pkt_type, subtype):
+        """Обнаружение атаки на основе сигнатур"""
+        current_time = time.time()
+        attack_detected = None
+        confidence = 0.0
+        
+        # Проверяем каждую сигнатуру
+        for attack_name, signature in self.attack_signatures.items():
+            if pkt_type == signature['type'] and subtype in signature['subtypes']:
+                # Инициализируем счетчики для этого MAC-адреса, если их еще нет
+                if src_mac not in self.packet_stats:
+                    self.packet_stats[src_mac] = {}
+                
+                if attack_name not in self.packet_stats[src_mac]:
+                    self.packet_stats[src_mac][attack_name] = {
+                        'count': 0,
+                        'first_seen': current_time,
+                        'last_seen': current_time,
+                        'packets': []
+                    }
+                
+                # Обновляем статистику
+                stats = self.packet_stats[src_mac][attack_name]
+                stats['count'] += 1
+                stats['last_seen'] = current_time
+                
+                # Сохраняем информацию о пакете (не более 20 пакетов для экономии памяти)
+                if len(stats['packets']) < 20:
+                    stats['packets'].append({
+                        'type': pkt_type,
+                        'subtype': subtype,
+                        'time': current_time
+                    })
+                
+                # Проверяем, превышен ли порог для этой сигнатуры
+                time_diff = current_time - stats['first_seen']
+                if (time_diff <= signature['time_window'] and 
+                    stats['count'] >= signature['min_count']):
+                    
+                    # Если обнаружено несколько атак, выбираем ту, у которой выше уверенность
+                    if attack_detected is None or signature['confidence'] > confidence:
+                        attack_detected = signature['description']
+                        confidence = signature['confidence']
+                        
+                        logger.info(f"АТАКА: {attack_detected} от {src_mac}, "
+                                   f"пакетов: {stats['count']}, "
+                                   f"за {time_diff:.2f} сек, "
+                                   f"уверенность: {confidence:.2f}")
+        
+        return attack_detected, confidence
+
+    def _detect_attack_by_statistics(self, src_mac, pkt_type, subtype, dst_mac):
+        """Обнаружение атаки на основе статистического анализа"""
+        current_time = time.time()
+        attack_detected = None
+        confidence = 0.0
+        
+        # Инициализируем статистику для этого MAC-адреса, если её еще нет
+        if src_mac not in self.packet_stats:
+            self.packet_stats[src_mac] = {
+                'total_packets': 0,
+                'first_seen': current_time,
+                'last_seen': current_time,
+                'packet_rate': 0.0,
+                'packet_types': {},
+                'destinations': {}
+            }
+        
+        # Обновляем общую статистику
+        stats = self.packet_stats[src_mac]
+        stats['total_packets'] += 1
+        stats['last_seen'] = current_time
+        
+        # Обновляем статистику по типам пакетов
+        type_key = f"{pkt_type}_{subtype}"
+        if type_key not in stats['packet_types']:
+            stats['packet_types'][type_key] = 0
+        stats['packet_types'][type_key] += 1
+        
+        # Обновляем статистику по получателям
+        if dst_mac not in stats['destinations']:
+            stats['destinations'][dst_mac] = 0
+        stats['destinations'][dst_mac] += 1
+        
+        # Вычисляем частоту пакетов (пакетов в секунду)
+        time_diff = current_time - stats['first_seen']
+        if time_diff > 0:
+            stats['packet_rate'] = stats['total_packets'] / time_diff
+        
+        # Анализируем статистику для обнаружения атак
+        
+        # 1. Высокая частота пакетов
+        if stats['packet_rate'] > 20.0:  # Более 20 пакетов в секунду
+            attack_detected = "Flood Attack (High packet rate)"
+            confidence = min(0.5 + (stats['packet_rate'] - 20.0) / 100.0, 0.9)
+            logger.info(f"АТАКА: Высокая частота пакетов от {src_mac}: "
+                       f"{stats['packet_rate']:.2f} пакетов/сек, "
+                       f"уверенность: {confidence:.2f}")
+        
+        # 2. Много пакетов одного типа
+        for type_key, count in stats['packet_types'].items():
+            if count > 10 and count / stats['total_packets'] > 0.8:
+                attack_detected = f"Flood Attack (Type {type_key})"
+                confidence = min(0.6 + (count - 10) / 50.0, 0.9)
+                logger.info(f"АТАКА: Много пакетов типа {type_key} от {src_mac}: "
+                           f"{count} пакетов, "
+                           f"уверенность: {confidence:.2f}")
+                break
+        
+        # 3. Много пакетов на широковещательный адрес
+        for dest, count in stats['destinations'].items():
+            if dest in self.BROADCAST_MAC and count > 5:
+                attack_detected = "Broadcast Flood Attack"
+                confidence = min(0.7 + (count - 5) / 20.0, 0.9)
+                logger.info(f"АТАКА: Широковещательная атака от {src_mac}: "
+                           f"{count} пакетов, "
+                           f"уверенность: {confidence:.2f}")
+                break
+        
+        return attack_detected, confidence
+
+    def _cleanup_statistics(self):
+        """Очистка устаревшей статистики"""
+        current_time = time.time()
+        
+        # Очищаем статистику не чаще, чем раз в 10 секунд
+        if current_time - self.last_cleanup_time < 10.0:
+            return
+        
+        self.last_cleanup_time = current_time
+        
+        # Удаляем устаревшие записи
+        to_delete = []
+        for mac, stats in self.packet_stats.items():
+            if current_time - stats.get('last_seen', 0) > self.time_window * 2:
+                to_delete.append(mac)
+        
+        for mac in to_delete:
+            del self.packet_stats[mac]
+            
+        logger.info(f"Очищена статистика для {len(to_delete)} MAC-адресов")
+    
     def _calculate_direction_rssi(self, src_mac):
         """Вычисление направления на основе разницы RSSI (амплитудный метод)"""
         try:
@@ -411,10 +570,6 @@ class PacketCapture:
             if not rssi_direction:
                 return tdoa_direction
             if not tdoa_direction:
-                return rssi_direction
-            
-            # Если оба метода дали одинаковый результат, используем его
-            if rssi_direction == tdoa_direction:
                 return rssi_direction
             
             # Если результаты разные, используем метод с большей уверенностью
