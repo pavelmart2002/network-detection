@@ -3,6 +3,7 @@
 
 import math
 import logging
+import time
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QFont
 from PySide6.QtCore import Qt, QTimer, QRect, QPoint, Signal, Slot
@@ -58,7 +59,7 @@ class TriangulationView(QWidget):
         # Флаг демонстрационного режима
         self.demo_mode = True
         self.demo_direction_index = 0
-        self.demo_directions = ["Слева", "Прямо впереди", "Справа"]
+        self.demo_directions = ["Слева", "Справа", "Прямо впереди", "Северо-восток", "Северо-запад", "Юго-восток", "Юго-запад", "Сзади"]
         
         logger.info("TriangulationView initialized")
     
@@ -98,11 +99,21 @@ class TriangulationView(QWidget):
         
         # Преобразуем текстовое направление в градусы
         if direction_text == "Слева":
-            self.direction = 315  # 315 градусов (10:30 на часах)
+            self.direction = 270  # 270 градусов (9:00 на часах)
         elif direction_text == "Справа":
-            self.direction = 45   # 45 градусов (1:30 на часах)
+            self.direction = 90   # 90 градусов (3:00 на часах)
         elif direction_text == "Прямо впереди":
             self.direction = 0    # 0 градусов (12:00 на часах)
+        elif direction_text == "Северо-восток":
+            self.direction = 45   # 45 градусов (1:30 на часах)
+        elif direction_text == "Северо-запад":
+            self.direction = 315  # 315 градусов (10:30 на часах)
+        elif direction_text == "Юго-восток":
+            self.direction = 135  # 135 градусов (4:30 на часах)
+        elif direction_text == "Юго-запад":
+            self.direction = 225  # 225 градусов (7:30 на часах)
+        elif direction_text == "Сзади":
+            self.direction = 180  # 180 градусов (6:00 на часах)
         else:
             self.direction = None
         
@@ -121,98 +132,171 @@ class TriangulationView(QWidget):
         else:
             self.info_label.setText("Ожидание данных...")
         
+        # Логируем для отладки
+        logger.info(f"Установлено направление: {direction_text}, градусы: {self.direction}")
+        
         # Перерисовываем виджет
         self.update()
     
     def paintEvent(self, event):
         """Отрисовка круговой диаграммы с направлением"""
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        
-        # Получаем размеры виджета
-        width = self.width()
-        height = self.height()
-        
-        # Вычисляем центр и радиус
-        center_x = width // 2
-        center_y = height // 2
-        radius = min(width, height) // 2 - 40
-        
-        # Рисуем круг
-        painter.setPen(QPen(QColor("#555555"), 2))
-        painter.setBrush(QBrush(QColor("#252526")))
-        painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
-        
-        # Рисуем метки направлений
-        painter.setPen(QPen(QColor("#AAAAAA"), 1))
-        font = QFont()
-        font.setPointSize(10)
-        painter.setFont(font)
-        
-        # Север (0 градусов)
-        painter.drawLine(center_x, center_y - radius, center_x, center_y - radius + 15)
-        painter.drawText(center_x - 5, center_y - radius - 5, "С")
-        
-        # Восток (90 градусов)
-        painter.drawLine(center_x + radius, center_y, center_x + radius - 15, center_y)
-        painter.drawText(center_x + radius + 5, center_y + 5, "В")
-        
-        # Юг (180 градусов)
-        painter.drawLine(center_x, center_y + radius, center_x, center_y + radius - 15)
-        painter.drawText(center_x - 5, center_y + radius + 15, "Ю")
-        
-        # Запад (270 градусов)
-        painter.drawLine(center_x - radius, center_y, center_x - radius + 15, center_y)
-        painter.drawText(center_x - radius - 15, center_y + 5, "З")
-        
-        # Рисуем концентрические круги для индикации мощности сигнала
-        for i in range(1, 4):
-            r = radius * i / 3
-            painter.setPen(QPen(QColor("#444444"), 1, Qt.DashLine))
-            painter.drawEllipse(center_x - r, center_y - r, r * 2, r * 2)
-        
-        # Если есть направление, рисуем луч
-        if self.direction is not None:
-            # Преобразуем градусы в радианы (0 градусов - север)
-            angle_rad = math.radians(self.direction)
+        try:
+            logger.info("paintEvent вызван")
             
-            # Вычисляем конечную точку луча
-            end_x = center_x + radius * math.sin(angle_rad)
-            end_y = center_y - radius * math.cos(angle_rad)
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.Antialiasing)
             
-            # Рисуем луч
-            beam_pen = QPen(QColor("#FF6E00"), 3)
-            painter.setPen(beam_pen)
-            painter.drawLine(center_x, center_y, int(end_x), int(end_y))
+            # Получаем размеры виджета
+            width = self.width()
+            height = self.height()
             
-            # Рисуем наконечник луча
-            arrow_size = 10
-            painter.setBrush(QBrush(QColor("#FF6E00")))
+            # Вычисляем центр и радиус
+            center_x = width // 2
+            center_y = height // 2
+            radius = min(width, height) // 2 - 40
             
-            # Создаем треугольник для наконечника
-            path = QPainterPath()
-            path.moveTo(end_x, end_y)
+            # Логируем для отладки
+            logger.info(f"Размеры виджета: {width}x{height}, центр: ({center_x}, {center_y}), радиус: {radius}")
             
-            # Вычисляем точки треугольника
-            angle1 = angle_rad + math.radians(150)
-            angle2 = angle_rad - math.radians(150)
-            
-            point1_x = end_x + arrow_size * math.sin(angle1)
-            point1_y = end_y - arrow_size * math.cos(angle1)
-            
-            point2_x = end_x + arrow_size * math.sin(angle2)
-            point2_y = end_y - arrow_size * math.cos(angle2)
-            
-            path.lineTo(point1_x, point1_y)
-            path.lineTo(point2_x, point2_y)
-            path.closeSubpath()
-            
-            painter.drawPath(path)
-            
-            # Рисуем точку в центре
-            painter.setBrush(QBrush(QColor("#FF6E00")))
+            # Рисуем фон
             painter.setPen(Qt.NoPen)
-            painter.drawEllipse(center_x - 5, center_y - 5, 10, 10)
-        
-        # Завершаем рисование
-        painter.end()
+            painter.setBrush(QBrush(QColor("#252526")))
+            painter.drawRect(0, 0, width, height)
+            
+            # Рисуем основной круг
+            painter.setPen(QPen(QColor("#555555"), 2))
+            painter.setBrush(QBrush(QColor("#2D2D30")))
+            painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+            
+            # Рисуем концентрические круги для индикации мощности сигнала
+            for i in range(1, 4):
+                r = radius * i / 3
+                painter.setPen(QPen(QColor("#444444"), 1, Qt.DashLine))
+                painter.drawEllipse(center_x - r, center_y - r, r * 2, r * 2)
+            
+            # Рисуем основные направления (компас)
+            painter.setPen(QPen(QColor("#AAAAAA"), 1))
+            font = QFont()
+            font.setPointSize(10)
+            painter.setFont(font)
+            
+            # Рисуем линии направлений
+            directions = [
+                (0, "С"), (45, "СВ"), (90, "В"), (135, "ЮВ"),
+                (180, "Ю"), (225, "ЮЗ"), (270, "З"), (315, "СЗ")
+            ]
+            
+            for angle, label in directions:
+                # Преобразуем градусы в радианы
+                angle_rad = math.radians(angle)
+                
+                # Рисуем линию от центра к краю
+                line_end_x = center_x + radius * math.sin(angle_rad)
+                line_end_y = center_y - radius * math.cos(angle_rad)
+                
+                # Рисуем линию
+                painter.setPen(QPen(QColor("#555555"), 1))
+                painter.drawLine(center_x, center_y, int(line_end_x), int(line_end_y))
+                
+                # Рисуем метку
+                text_x = center_x + (radius + 15) * math.sin(angle_rad) - 10
+                text_y = center_y - (radius + 15) * math.cos(angle_rad) + 5
+                
+                painter.setPen(QPen(QColor("#AAAAAA"), 1))
+                painter.drawText(int(text_x), int(text_y), label)
+            
+            # Если есть направление, рисуем луч
+            if self.direction is not None:
+                # Преобразуем градусы в радианы
+                angle_rad = math.radians(self.direction)
+                
+                # Вычисляем конечную точку луча
+                end_x = center_x + radius * math.sin(angle_rad)
+                end_y = center_y - radius * math.cos(angle_rad)
+                
+                # Рисуем луч с градиентом
+                beam_width = 3 + int(self.signal_strength / 20)  # Ширина луча зависит от мощности сигнала
+                beam_pen = QPen(QColor("#FF6E00"), beam_width)
+                painter.setPen(beam_pen)
+                painter.drawLine(center_x, center_y, int(end_x), int(end_y))
+                
+                # Рисуем наконечник луча
+                arrow_size = 12
+                painter.setBrush(QBrush(QColor("#FF6E00")))
+                
+                # Создаем треугольник для наконечника
+                arrow_path = QPainterPath()
+                arrow_path.moveTo(end_x, end_y)
+                
+                # Вычисляем точки для треугольника
+                angle1 = angle_rad + math.radians(150)
+                angle2 = angle_rad - math.radians(150)
+                
+                point1_x = end_x + arrow_size * math.sin(angle1)
+                point1_y = end_y - arrow_size * math.cos(angle1)
+                
+                point2_x = end_x + arrow_size * math.sin(angle2)
+                point2_y = end_y - arrow_size * math.cos(angle2)
+                
+                arrow_path.lineTo(point1_x, point1_y)
+                arrow_path.lineTo(point2_x, point2_y)
+                arrow_path.closeSubpath()
+                
+                painter.drawPath(arrow_path)
+                
+                # Рисуем индикатор мощности сигнала
+                signal_radius = 20
+                signal_x = center_x - signal_radius
+                signal_y = height - signal_radius * 2 - 10
+                
+                # Фон индикатора
+                painter.setPen(QPen(QColor("#555555"), 1))
+                painter.setBrush(QBrush(QColor("#252526")))
+                painter.drawRect(signal_x, signal_y, signal_radius * 2, signal_radius)
+                
+                # Заполнение индикатора
+                fill_width = int((signal_radius * 2) * self.signal_strength / 100)
+                
+                # Выбираем цвет в зависимости от мощности сигнала
+                if self.signal_strength < 30:
+                    signal_color = QColor("#FF3333")  # Красный для слабого сигнала
+                elif self.signal_strength < 70:
+                    signal_color = QColor("#FFCC00")  # Желтый для среднего сигнала
+                else:
+                    signal_color = QColor("#33CC33")  # Зеленый для сильного сигнала
+                
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(signal_color))
+                painter.drawRect(signal_x, signal_y, fill_width, signal_radius)
+                
+                # Текст с процентами
+                painter.setPen(QPen(QColor("#FFFFFF"), 1))
+                painter.drawText(signal_x + 5, signal_y + signal_radius - 5, f"{self.signal_strength}%")
+                
+                # Рисуем центральную точку
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(QColor("#FF6E00")))
+                painter.drawEllipse(center_x - 5, center_y - 5, 10, 10)
+                
+                # Рисуем пульсирующий круг вокруг центра
+                pulse_size = 10 + (self.signal_strength / 10)
+                pulse_opacity = 100 + int(155 * math.sin(time.time() * 5))  # Пульсация
+                pulse_color = QColor("#FF6E00")
+                pulse_color.setAlpha(pulse_opacity)
+                
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(pulse_color))
+                painter.drawEllipse(
+                    center_x - pulse_size/2, 
+                    center_y - pulse_size/2, 
+                    pulse_size, 
+                    pulse_size
+                )
+            
+            # Рисуем рамку вокруг виджета
+            painter.setPen(QPen(QColor("#555555"), 1))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRect(0, 0, width - 1, height - 1)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при отрисовке: {e}", exc_info=True)
