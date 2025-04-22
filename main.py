@@ -201,6 +201,10 @@ class MainWindow(QMainWindow):
         interface_select_layout.addWidget(self.refresh_button)
         interface_layout.addLayout(interface_select_layout)
         
+        # Кнопка перевода интерфейса в режим мониторинга
+        self.monitor_mode_button = QPushButton("Включить режим мониторинга")
+        interface_layout.addWidget(self.monitor_mode_button)
+        
         # Выбор канала
         channel_select_layout = QHBoxLayout()
         self.channel_label = QLabel("Канал:")
@@ -292,6 +296,7 @@ class MainWindow(QMainWindow):
         self.set_channel_button.clicked.connect(self.set_channel)
         self.enable_triangulation_button.clicked.connect(self.toggle_triangulation)
         self.show_triangulation_view_button.clicked.connect(self.show_triangulation_view)
+        self.monitor_mode_button.clicked.connect(self.enable_monitor_mode)
         
         # Инициализация интерфейсов
         self.refresh_interfaces()
@@ -622,6 +627,19 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Ошибка установки канала {channel}")
         except Exception as e:
             QMessageBox.critical(self, "Ошибка", f"Ошибка установки канала: {e}")
+
+    def enable_monitor_mode(self):
+        """Перевести выбранный интерфейс в режим мониторинга."""
+        iface = self.interface_combo.currentText()
+        if not iface:
+            QMessageBox.warning(self, "Ошибка", "Сначала выберите интерфейс!")
+            return
+        ok = self.packet_capture.set_monitor_mode(iface)
+        if ok:
+            QMessageBox.information(self, "Успех", f"Интерфейс {iface} переведён в режим мониторинга.")
+            self.statusBar().showMessage(f"Интерфейс {iface} в режиме monitor")
+        else:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось перевести {iface} в режим мониторинга. См. логи.")
 
 if __name__ == "__main__":
     try:
