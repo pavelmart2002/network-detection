@@ -663,6 +663,29 @@ class PacketCapture:
                 error_callback(error_msg)
             return False
             
+    def set_monitor_mode(self, interface_name):
+        """Переводит указанный интерфейс в режим мониторинга (Linux). Возвращает True/False."""
+        import platform
+        import subprocess
+        system = platform.system().lower()
+        if system == 'linux':
+            try:
+                logger.info(f"Переводим интерфейс {interface_name} в режим monitor...")
+                subprocess.check_call(['ip', 'link', 'set', interface_name, 'down'])
+                subprocess.check_call(['iw', interface_name, 'set', 'monitor', 'control'])
+                subprocess.check_call(['ip', 'link', 'set', interface_name, 'up'])
+                logger.info(f"Интерфейс {interface_name} успешно переведён в режим мониторинга!")
+                return True
+            except Exception as e:
+                logger.error(f"Ошибка при переводе {interface_name} в режим monitor: {e}")
+                return False
+        elif system == 'windows':
+            logger.warning("Monitor mode поддерживается только на некоторых адаптерах и драйверах Windows. Настройка вручную!")
+            return False
+        else:
+            logger.warning(f"Monitor mode не поддерживается на этой ОС: {system}")
+            return False
+
 class NetworkInterface:
     """Класс для хранения информации об интерфейсе"""
     def __init__(self, name, description, guid):
